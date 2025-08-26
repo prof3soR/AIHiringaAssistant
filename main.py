@@ -3,7 +3,6 @@ import json
 import os
 from dotenv import load_dotenv
 from groq import Groq
-
 from db_manager import DatabaseManager
 from prompts import PromptsManager
 from utils import ResumeProcessor, SearchManager, ConversationStates
@@ -57,7 +56,7 @@ class HiringAssistant:
                 model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": question_prompt}],
                 temperature=0.3,
-                max_tokens=3000  # Increased for complete questions
+                max_tokens=3000  
             )
             
             questions_data = json.loads(response.choices[0].message.content.strip())
@@ -82,7 +81,7 @@ class HiringAssistant:
                 model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": follow_up_prompt}],
                 temperature=0.4,
-                max_tokens=500  # Increased for complete questions
+                max_tokens=500 
             )
             
             return response.choices[0].message.content.strip()
@@ -104,7 +103,7 @@ class HiringAssistant:
             
             return json.loads(response.choices[0].message.content.strip())
         except Exception as e:
-            return {"action": "confirm"}  # Default to confirm if parsing fails
+            return {"action": "confirm"}
     
     def process_conversation(self, email, user_input):
         """Main conversation processing logic"""
@@ -233,7 +232,7 @@ class HiringAssistant:
             if generated_questions and next_q_num <= len(generated_questions):
                 # Use pre-generated question
                 next_question = generated_questions[next_q_num - 1]['question']
-                response = f"Great answer! 👍\n\n**Question {next_q_num}:**\n{next_question}"
+                response = f"\n**Question {next_q_num}:**\n{next_question}"
             else:
                 # Generate follow-up or use fallback
                 candidate_data = self.db.get_candidate_data(email)
@@ -243,7 +242,7 @@ class HiringAssistant:
                 }, candidate_data)
                 
                 if follow_up and len(user_answer.strip()) > 20:
-                    response = f"Great answer! 👍\n\n**Follow-up Question {next_q_num}:**\n{follow_up}"
+                    response = f"\n**Follow-up Question {next_q_num}:**\n{follow_up}"
                 else:
                     response = f"Thank you for your answer! 👍\n\n**Question {next_q_num}:**\nTell me about a time you had to solve a complex technical problem. What was your approach and what tools did you use?"
             
@@ -439,6 +438,7 @@ def main():
             with st.chat_message(message['type']):
                 st.write(message['content'])
     
+
     # Resume upload section
     if conv_state and conv_state['current_state'] == ConversationStates.RESUME_REQUEST:
         st.markdown("### 📄 Upload Your Resume")
@@ -451,16 +451,10 @@ def main():
         
         if uploaded_file is not None:
             with st.spinner('🔍 Processing your resume...'):
-                response = assistant.handle_resume_upload(uploaded_file, email)
-                
-                # Save and display the response
-                assistant.db.save_message(email, "assistant", response)
-                with st.chat_message("assistant"):
-                    st.write(response)
-                
-                # Force refresh to update conversation state
+                assistant.handle_resume_upload(uploaded_file, email)
                 st.rerun()
-    
+
+        
     # Handle interview preparation
     if conv_state and conv_state['current_state'] == ConversationStates.INTERVIEW_PREP:
         with st.spinner('🔍 Searching for relevant interview questions...'):
