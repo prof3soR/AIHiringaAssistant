@@ -1,0 +1,18 @@
+[project]
+name = "aihiringaassistant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ddgs>=9.5.4",
+    "dotenv>=0.9.9",
+    "duckduckgo-search>=8.1.1",
+    "groq>=0.31.0",
+    "langchain>=0.3.27",
+    "langchain-community>=0.3.27",
+    "langchain-groq>=0.3.7",
+    "pypdf2>=3.0.1",
+    "python-docx>=1.2.0",
+    "streamlit>=1.48.1",
+]
