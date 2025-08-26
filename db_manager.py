@@ -263,3 +263,32 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+        
+    def get_interview_qa(self, email):
+        """Get all interview Q&A for an email"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT question_text, user_answer FROM interview_qa 
+        WHERE email = ? 
+        ORDER BY question_number ASC
+        ''', (email,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [{'question': r[0], 'answer': r[1]} for r in results]
+
+    def update_interview_answer(self, email, question_number, new_answer):
+        """Update an interview answer"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        UPDATE interview_qa SET user_answer = ? 
+        WHERE email = ? AND question_number = ?
+        ''', (new_answer, email, question_number))
+        
+        conn.commit()
+        conn.close()

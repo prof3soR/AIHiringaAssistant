@@ -116,3 +116,53 @@ class PromptsManager:
         If they're just confirming, set action to "confirm".
         If updating location, the field should be "current_location".
         """
+    @staticmethod
+    def get_info_parsing_prompt(user_input, step):
+        """Prompt for parsing user information input"""
+        return f"""
+        Parse the user's input for step: {step}
+        
+        User Input: "{user_input}"
+        
+        Return JSON:
+        {{
+            "parsed_info": "cleaned user input"
+        }}
+        """
+    @staticmethod
+    def get_context_based_response_prompt(user_question, candidate_data, interview_qa, conversation_context):
+        """Prompt for generating context-aware responses after interview"""
+        tech_stack_str = ", ".join(candidate_data.get('tech_stack', [])) if isinstance(candidate_data.get('tech_stack'), list) else candidate_data.get('tech_stack', '')
+        
+        qa_context = ""
+        for i, qa in enumerate(interview_qa, 1):
+            qa_context += f"Q{i}: {qa['question']}\nA{i}: {qa['answer']}\n\n"
+        
+        return f"""
+        You are TalentScout AI, a professional hiring assistant. A candidate has just completed their technical interview and is asking a follow-up question. 
+
+        Provide a helpful, professional response based on the full context of their interview.
+
+        **Candidate Profile:**
+        - Name: {candidate_data.get('full_name', 'Unknown')}
+        - Position: {candidate_data.get('desired_position', 'Unknown')}
+        - Experience: {candidate_data.get('years_experience', 0)} years
+        - Tech Stack: {tech_stack_str}
+        - Location: {candidate_data.get('current_location', 'Unknown')}
+
+        **Interview Q&A Context:**
+        {qa_context}
+
+        **User's Question:** {user_question}
+
+        **Instructions:**
+        1. Answer professionally as TalentScout AI
+        2. Reference their interview responses when relevant
+        3. Provide helpful information about next steps, timeline, process, etc.
+        4. Be encouraging and supportive
+        5. If asked about their performance, be diplomatic and positive
+        6. If asked about company info, provide general professional responses
+        7. Keep responses concise but informative
+
+        Generate a helpful response:
+        """
