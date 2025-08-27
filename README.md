@@ -1,5 +1,5 @@
 # Hiring Assistant Chatbot 🤖
-
+Try this project @ [https://aihiringaassistant-cbdxfxfhocfgcfdom4fbe7.streamlit.app/](url)
 ## 📌 Project Overview
 The **Hiring Assistant Chatbot** is an AI-powered recruitment tool that simplifies the candidate screening process. It interactively gathers candidate details, asks technical and HR-related questions, stores responses in a database, and provides a manager dashboard for evaluation.  
 
@@ -9,10 +9,8 @@ Key features include:
 - Candidate response storage using SQLite.  
 - Manager dashboard for reviewing applicants.  
 
-![Chatbot Demo](assets/demo-chatbot.png)  
-*Placeholder: Replace with a screenshot of chatbot in action*  
+![Chatbot Demo](/demo/sample.png)  
 
----
 
 ## ⚙️ Installation Instructions
 
@@ -52,29 +50,22 @@ python db_manager.py --init
 ### 5. Run the Application
 Start the chatbot:
 ```bash
-python main.py
+streamlit run main.py
 ```
 
-Launch manager dashboard:
-```bash
-python manager_dashboard.py
-```
+![Dashboard Demo](demo/dashboard.png)  
 
-![Dashboard Demo](assets/demo-dashboard.png)  
-*Placeholder: Replace with screenshot of dashboard UI*  
 
 ---
 
 ## 🚀 Usage Guide
 
 1. **Candidate Side**
-   - Run `main.py`.  
    - The chatbot will introduce itself and ask for personal details.  
    - It will generate **technical and HR questions** dynamically.  
    - All answers are logged into the database.  
 
 2. **Manager Side**
-   - Run `manager_dashboard.py`.  
    - View candidate responses, filter by skill/experience, and analyze interview results.  
    - Use exported reports for hiring decisions.  
 
@@ -84,7 +75,6 @@ python manager_dashboard.py
 
 ### 📂 Core Files
 - **`main.py`** – Entry point for candidate-chatbot interaction.  
-- **`manager_dashboard.py`** – Dashboard interface for managers.  
 - **`analysis_engine.py`** – Analysis of candidate answers.  
 - **`db_manager.py`** – SQLite database utilities.  
 - **`prompts.py`** – Prompt templates for candidate conversations.  
@@ -94,15 +84,9 @@ python manager_dashboard.py
 ### 🧰 Libraries & Tools
 - **LangChain** – LLM orchestration and prompt handling.  
 - **SQLite3** – Lightweight relational database.  
-- **FastAPI / Streamlit (optional)** – For serving and dashboards.  
-- **Python Standard Libraries** – `os`, `pathlib`, etc.  
+- **Streamlit** – For serving and dashboards.  
+- **Groq could Model** – openai/gpt-oss-20b.
 
-### 🏗️ Architecture
-```
-Candidate ↔ Chatbot (main.py) ↔ Prompt Engine (prompts.py) 
-          ↔ Analysis (analysis_engine.py) ↔ Database (db_manager.py) 
-          ↔ Manager Dashboard (manager_dashboard.py)
-```
 
 ---
 
@@ -139,12 +123,8 @@ Example prompt categories:
 - ATS integration (export to HR platforms).  
 - Deploy as a SaaS web application.  
 
----
 
-## 📜 License
-This project is licensed under the **MIT License**.  
 
----
 
 ## 🙌 Acknowledgements
 Thanks to open-source tools like **LangChain**, **SQLite**, and the Python ecosystem for making this project possible.  
