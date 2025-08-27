@@ -309,7 +309,7 @@ def main():
                     'Experience': f"{candidate['years_experience']} years",
                     'Questions': qa_count,
                     'Overall Score': f"{analysis['overall_score']:.1f}/10" if analysis else 'Not analyzed',
-                    'Recommendation': analysis['hiking_recommendation'] if analysis else 'Pending'
+                    'Recommendation': analysis['hiring_recommendation'] if analysis else 'Pending'
                 })
             
             # Convert to CSV-like format
