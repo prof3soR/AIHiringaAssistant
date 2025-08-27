@@ -210,7 +210,7 @@ class TalentScoutApp:
             if conv_state:
                 with st.expander("📊 Interview Status", expanded=False):
                     candidate_data = self.db.get_candidate_data(email)
-                    if candidate_data:
+                    if candidate_
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.write(f"**Candidate:** {candidate_data['full_name']}")
@@ -401,7 +401,7 @@ class TalentScoutApp:
                         'Recommendation': analysis['hiring_recommendation'] if analysis else 'Pending'
                     })
                 
-                if export_data:
+                if export_
                     st.download_button(
                         label="📥 Download CSV",
                         data=str(export_data),
@@ -975,169 +975,8 @@ Before we dive into technical questions, I'd love to get to know you better!
 
 # Run the app
 def main():
-<<<<<<< HEAD
     app = TalentScoutApp()
     app.run()
-=======
-    st.set_page_config(
-        page_title="🎯 TalentScout - AI Hiring Assistant",
-        page_icon="🎯",
-        layout="wide"
-    )
-    
-    # Initialize interviewer
-    interviewer = ConversationalInterviewer()
-    
-    # Header
-    st.title("🎯 TalentScout AI Hiring Assistant")
-    st.markdown("**Intelligent Conversational Technical Screening**")
-    st.divider()
-    
-    # Session state management
-    if 'user_email' not in st.session_state:
-        st.session_state.user_email = None
-        st.session_state.form_submitted = False
-    
-    # Email input
-    if not st.session_state.user_email:
-        st.subheader("Get Started")
-        with st.form("email_form"):
-            st.write("**Please enter your email to start:**")
-            email_input = st.text_input("Email Address", placeholder="your.email@example.com")
-            submit_email = st.form_submit_button("Start Interview", type="primary")
-            
-            if submit_email and email_input:
-                if "@" in email_input and "." in email_input:
-                    st.session_state.user_email = email_input
-                    st.rerun()
-                else:
-                    st.error("Please enter a valid email address.")
-        return
-    
-    email = st.session_state.user_email
-    conv_state = interviewer.db.get_conversation_state(email)
-    
-    # Information form (if no conversation exists)
-    if not conv_state and not st.session_state.form_submitted:
-        st.subheader("📋 Candidate Information")
-        st.write("Please fill out the form below to get started with your conversational technical interview.")
-        
-        with st.form("candidate_info_form"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                full_name = st.text_input("Full Name *", placeholder="John Doe")
-                desired_position = st.text_input("Desired Position *", placeholder="AI Engineer, Software Developer, etc.")
-                years_experience = st.number_input("Years of Experience", min_value=0, max_value=50, value=0)
-            
-            with col2:
-                phone = st.text_input("Phone Number", placeholder="+1-234-567-8900")
-                current_location = st.text_input("Current Location", placeholder="City, State/Country")
-            
-            tech_stack_input = st.text_area(
-                "Technical Skills & Tech Stack *", 
-                placeholder="List your technical skills separated by commas\nExample: Python, JavaScript, React, Django, MySQL, AWS, Docker",
-                height=100
-            )
-            
-            submit_info = st.form_submit_button("🚀 Start Conversational Interview", type="primary")
-            
-            if submit_info:
-                if not full_name or not desired_position or not tech_stack_input:
-                    st.error("Please fill in all required fields marked with *")
-                else:
-                    tech_stack = [tech.strip() for tech in tech_stack_input.split(',') if tech.strip()]
-                    
-                    candidate_data = {
-                        'full_name': full_name.strip(),
-                        'email': email,
-                        'phone': phone.strip() if phone else "Not provided",
-                        'years_experience': years_experience,
-                        'desired_position': desired_position.strip(),
-                        'current_location': current_location.strip() if current_location else "Not provided",
-                        'tech_stack': json.dumps(tech_stack)
-                    }
-                    
-                    candidate_id = interviewer.db.save_candidate_to_db(candidate_data, "")
-                    
-                    if candidate_id:
-                        candidate_data['id'] = candidate_id
-                        intro_message = start_conversational_intro(email, full_name, candidate_data)
-                        
-                        st.session_state.form_submitted = True
-                        st.success("✅ Information saved! Starting conversational interview...")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("There was an error saving your information. Please try again.")
-        return
-    
-    # Chat interface for active conversations
-    if conv_state or st.session_state.form_submitted:
-        if not conv_state:
-            conv_state = interviewer.db.get_conversation_state(email)
-        
-        # Display conversation history
-        chat_history = interviewer.db.get_chat_history(email)
-        
-        for message in chat_history:
-            with st.chat_message(message['type']):
-                st.write(message['content'])
-        
-        # Show conversation ended message if terminated
-        if conv_state and conv_state['current_state'] == ConversationStates.CONVERSATION_TERMINATED:
-            st.success("✅ Interview Complete! Thank you for completing your conversational interview! You can now close this window.")
-        
-        # Chat input (hide when terminated)
-        if conv_state and conv_state['current_state'] != ConversationStates.CONVERSATION_TERMINATED:
-            if prompt := st.chat_input("Type your message here..."):
-                # Display user message
-                with st.chat_message("user"):
-                    st.write(prompt)
-                
-                # Process conversation
-                with st.spinner('🤔 Thinking...'):
-                    response = interviewer.process_conversation(email, prompt)
-                
-                # Display assistant response
-                with st.chat_message("assistant"):
-                    st.write(response)
-                
-                st.rerun()
-        
-        # Sidebar with status
-        with st.sidebar:
-            st.header("🎯 Interview Status")
-            
-            if conv_state:
-                candidate_data = interviewer.db.get_candidate_data(email)
-                if candidate_data:
-                    st.write(f"**Candidate:** {candidate_data['full_name']}")
-                    st.write(f"**Position:** {candidate_data['desired_position']}")
-                    st.write(f"**Experience:** {candidate_data['years_experience']} years")
-                
-                status_display = {
-                    ConversationStates.CONVERSATIONAL_INTRO: "Getting to Know You 💭",
-                    ConversationStates.DYNAMIC_INTERVIEW: "Technical Interview 🎯",
-                    ConversationStates.REAL_TIME_ANALYSIS: "Performance Analysis 📊",
-                    ConversationStates.POST_INTERVIEW_QA: "Q&A Session 💬",
-                    ConversationStates.CONVERSATION_TERMINATED: "Complete ✅"
-                }
-                
-                current_status = status_display.get(conv_state['current_state'], conv_state['current_state'])
-                st.write(f"**Status:** {current_status}")
-                
-                if conv_state['current_state'] == ConversationStates.DYNAMIC_INTERVIEW:
-                    st.write(f"**Questions Asked:** {conv_state['current_question_number'] - 1}")
-            
-            if st.button("🔄 Start New Interview"):
-                interviewer.db.clear_conversation(email)
-                interviewer.memory.clear_memory(email)
-                st.session_state.user_email = None
-                st.session_state.form_submitted = False
-                st.rerun()
-            st.link_button("Go to Dashboard", "https://managerdashboardaihiringagent.streamlit.app/")
->>>>>>> 2944a1fec064c758eb44292a0a67709da1598694
 
 if __name__ == "__main__":
     main()
