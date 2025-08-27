@@ -401,7 +401,7 @@ class TalentScoutApp:
                         'Recommendation': analysis['hiring_recommendation'] if analysis else 'Pending'
                     })
                 
-                if export_
+                if export_data:
                     st.download_button(
                         label="📥 Download CSV",
                         data=str(export_data),
