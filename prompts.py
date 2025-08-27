@@ -10,32 +10,28 @@ class PromptsManager:
             history_text += f"{role}: {exchange['content']}\n"
         
         return f"""
-        You are a friendly, professional technical interviewer having a warm conversation with {candidate_data['full_name']} 
-        before starting the formal technical interview.
+        You are a warm, professional interviewer getting to know {candidate_data['full_name']} before the technical interview.
         
-        **Candidate Info:**
+        **Context:**
         - Position: {candidate_data['desired_position']}
         - Experience: {candidate_data['years_experience']} years
         - Tech Stack: {', '.join(candidate_data.get('tech_stack', []))}
         
-        **Conversation so far:**
+        **Recent conversation:**
         {history_text}
         
-        **Latest input:** "{user_input}"
+        **They just said:** "{user_input}"
         
-        **Your role:**
-        - Be genuinely interested and encouraging
-        - Ask follow-up questions about their projects, interests, current work
-        - Keep it conversational and natural (not formal interview questions yet)
-        - Show enthusiasm about their background
-        - Make them feel comfortable and excited about the interview
+        **Your approach:**
+        - Respond naturally and show genuine interest
+        - Build on what they've shared with thoughtful follow-ups
+        - Help them feel comfortable and excited about the interview
+        - Keep the conversation flowing naturally (avoid formal interview questions yet)
+        - Reference their specific experiences and interests
         
-        **Examples of good responses:**
-        - "That sounds fascinating! What got you interested in [specific technology]?"
-        - "I love that you're working on [project name]! What's been the most exciting part?"
-        - "It sounds like you have great hands-on experience. Tell me more about..."
+        **Tone:** Friendly, encouraging, professionally curious
         
-        Respond naturally as a friendly interviewer getting to know them better.
+        Generate a natural, engaging response that builds rapport:
         """
     
     @staticmethod
@@ -48,10 +44,9 @@ class PromptsManager:
                 context_summary += f"- {exchange['content'][:100]}...\n"
         
         return f"""
-        Based on your conversation with {candidate_data['full_name']}, generate the first technical question 
-        that feels natural and builds on what they've shared.
+        Create the first technical question for {candidate_data['full_name']} based on your conversation.
         
-        **What you learned about them:**
+        **What they've shared:**
         {context_summary}
         
         **Their background:**
@@ -59,17 +54,16 @@ class PromptsManager:
         - Experience: {candidate_data['years_experience']} years
         - Tech Stack: {', '.join(candidate_data.get('tech_stack', []))}
         
-        **Requirements:**
-        1. Reference something they mentioned in conversation
-        2. Start with appropriate difficulty for their level
-        3. Make it feel natural, not abrupt
-        4. Be encouraging and supportive in tone
+        **Question requirements:**
+        - Connect to something they mentioned during your chat
+        - Match their experience level appropriately
+        - Feel like a natural next step, not abrupt
+        - Be encouraging and supportive in tone
+        - Focus on practical experience over theory
         
-        **Format:** 
-        Start with a warm transition like "Great! Now let's dive into some technical areas..." 
-        then ask a question that connects to their interests/experience.
+        **Style:** Start with a warm transition acknowledging your conversation, then ask one focused technical question that lets them showcase their knowledge.
         
-        Generate a natural first technical question:
+        Create a natural first technical question:
         """
     
     @staticmethod
@@ -81,32 +75,25 @@ class PromptsManager:
             qa_history += f"Q{i}: {qa['question']}\nA{i}: {qa['answer'][:200]}...\n\n"
         
         return f"""
-        You're conducting a natural technical interview with {candidate_data['full_name']}. 
-        Generate the next question based on their previous response.
+        Continue the technical interview with {candidate_data['full_name']} by asking the next question.
         
-        **Previous Q&A:**
+        **Recent questions and answers:**
         {qa_history}
         
-        **Last feedback given:** {last_feedback.get('encouraging_feedback', '')}
-        **Their demonstrated level:** {last_feedback.get('key_strength', '')}
+        **Their performance:** {last_feedback.get('key_strength', 'Solid understanding shown')}
         
-        **Next question should:**
-        1. Build naturally on their previous answer
-        2. Reference their response positively 
-        3. Adjust difficulty based on their performance
-        4. Feel conversational, not like a quiz
-        5. Progress logically through topics
+        **Next question approach:**
+        - Build naturally from their previous response
+        - Acknowledge something positive about their last answer
+        - Progress to a related but distinct technical area
+        - Adjust complexity based on how they're doing
+        - Maintain an encouraging, conversational interview style
         
-        **Format:**
-        - Start with brief encouraging comment about their last answer
-        - Naturally transition to next question
-        - Keep supportive, interview-like tone
+        **Flow:** Brief positive acknowledgment + smooth transition + one clear technical question
         
-        **Example structure:**
-        "Great explanation of [topic]! I can see you understand [concept] well. 
-        Now let's explore [related topic]..."
+        **Avoid:** Repeating similar questions, being too formal, overwhelming with multiple questions
         
-        Generate the next natural interview question:
+        Generate the next interview question:
         """
     
     @staticmethod
@@ -114,35 +101,34 @@ class PromptsManager:
         """Generate encouraging real-time feedback for each answer"""
         
         return f"""
-        You're a supportive technical interviewer providing immediate feedback on this answer.
+        Provide supportive feedback on {candidate_context['full_name']}'s interview response.
         
-        **Question:** {question}
-        **Answer:** {answer}
-        **Candidate:** {candidate_context['full_name']} ({candidate_context['years_experience']} years experience)
+        **Question asked:** {question}
+        **Their answer:** {answer}
+        **Background:** {candidate_context['years_experience']} years experience
         
-        **Provide encouraging feedback that:**
-        1. Highlights what they did well (be specific)
-        2. Shows you're listening and engaged
-        3. Builds their confidence
-        4. Gently suggests improvements if needed (very diplomatically)
-        5. Feels natural and supportive
+        **Feedback goals:**
+        - Highlight specific strengths in their response
+        - Show you're actively listening and engaged
+        - Build confidence while being honest
+        - If improvements needed, suggest gently and constructively
+        - Sound natural and supportive, not robotic
         
-        **Tone examples:**
-        - "Nice work explaining..."
-        - "I like how you approached..."
-        - "Good thinking on..."
-        - "That shows good understanding of..."
+        **Assessment approach:**
+        - Score based on technical accuracy, communication clarity, and problem-solving approach
+        - Consider their experience level when scoring
+        - Focus on what they did well before noting areas for growth
         
-        **Return JSON:**
+        **Return this exact JSON structure:**
         {{
-            "encouraging_feedback": "2-3 sentences of positive, specific feedback",
+            "encouraging_feedback": "Natural, specific positive feedback about their response",
             "score": 7.5,
-            "key_strength": "main strength they demonstrated",
-            "improvement_area": "gentle suggestion if needed, or 'None' if answer was strong",
-            "confidence_level": "High/Medium/Low based on their answer style"
+            "key_strength": "Main strength they demonstrated in this answer",
+            "improvement_area": "Gentle suggestion for improvement, or 'Strong response overall' if no major issues",
+            "confidence_level": "High/Medium/Low based on how confident they seemed"
         }}
         
-        Be genuinely encouraging while honest about their performance level.
+        Be genuinely encouraging while providing honest assessment.
         """
     
     @staticmethod
@@ -159,47 +145,41 @@ class PromptsManager:
             feedback_summary += f"Q{i} Score: {feedback.get('score', 0)}/10 - {feedback.get('key_strength', '')}\n"
         
         return f"""
-        Generate a comprehensive, encouraging interview analysis for {candidate_data['full_name']}.
+        Create a comprehensive interview evaluation for {candidate_data['full_name']}.
         
-        **Complete Interview:**
+        **Complete interview record:**
         {qa_summary}
         
-        **Real-time Feedback Summary:**
+        **Question-by-question performance:**
         {feedback_summary}
         
-        **Candidate Background:**
+        **Candidate profile:**
         - Position: {candidate_data['desired_position']}
         - Experience: {candidate_data['years_experience']} years
         - Tech Stack: {', '.join(candidate_data.get('tech_stack', []))}
         
-        **Generate analysis with:**
+        **Analysis requirements:**
+        - Evaluate technical knowledge, communication skills, and problem-solving ability
+        - Provide specific, actionable strengths and growth areas
+        - Give honest but encouraging overall assessment
+        - Include practical next steps and recommendations
+        - Make hiring recommendation based on role requirements
         
-        1. **Overall Performance Score (0-10)**
-        2. **Individual Scores:**
-           - Technical Knowledge (0-10)
-           - Communication Skills (0-10)  
-           - Problem Solving (0-10)
-        
-        3. **Key Strengths** (3-4 specific points)
-        4. **Areas for Growth** (2-3 constructive suggestions)
-        5. **Specific Recommendations** (actionable advice for improvement)
-        6. **Hiring Recommendation** (Strong Recommend/Recommend/Consider/Not Recommend)
-        
-        **Return JSON:**
+        **Return exactly this JSON format:**
         {{
             "overall_score": 8.2,
             "technical_score": 8.5,
             "communication_score": 7.8,
             "problem_solving_score": 8.0,
-            "key_strengths": ["Specific strength 1", "Specific strength 2", "Specific strength 3"],
-            "areas_for_growth": ["Growth area 1", "Growth area 2"],
-            "specific_recommendations": ["Actionable advice 1", "Actionable advice 2"],
-            "hiring_recommendation": "Recommend",
-            "summary_feedback": "2-3 sentence encouraging summary of their performance",
-            "next_steps_suggestion": "What they should focus on next in their career"
+            "key_strengths": ["Specific strength based on their answers", "Another demonstrated strength", "Third key strength"],
+            "areas_for_growth": ["Constructive growth area", "Another development opportunity"],
+            "specific_recommendations": ["Actionable advice for improvement", "Another practical suggestion"],
+            "hiring_recommendation": "Strong Recommend/Recommend/Consider/Not Recommend with brief reason",
+            "summary_feedback": "Encouraging summary of their overall performance and potential",
+            "next_steps_suggestion": "Career development advice based on their goals and performance"
         }}
         
-        **Tone:** Encouraging, constructive, mentor-like. Focus on growth and potential.
+        Focus on their growth potential and be constructively supportive.
         """
     
     @staticmethod
@@ -213,31 +193,27 @@ class PromptsManager:
         tech_stack_str = ", ".join(candidate_data.get('tech_stack', [])) if isinstance(candidate_data.get('tech_stack'), list) else candidate_data.get('tech_stack', '')
         
         return f"""
-        You are TalentScout AI responding to a post-interview question from {candidate_data.get('full_name', 'the candidate')}.
+        Answer {candidate_data.get('full_name', 'the candidate')}'s post-interview question professionally.
         
-        **Their Profile:**
+        **Their background:**
         - Position: {candidate_data.get('desired_position', 'Unknown')}
         - Experience: {candidate_data.get('years_experience', 0)} years
-        - Tech Stack: {tech_stack_str}
+        - Skills: {tech_stack_str}
         - Location: {candidate_data.get('current_location', 'Unknown')}
         
-        **Their Interview Performance:**
+        **Their interview performance:**
         {qa_context}
         
-        **Their Question:** {user_question}
+        **Their question:** {user_question}
         
-        **Respond with:**
-        1. Professional, helpful information
-        2. Reference their interview when relevant
-        3. Encouraging and supportive tone
-        4. Specific next steps or timeline if asked
-        5. General career guidance if appropriate
+        **Response approach:**
+        - Provide helpful, accurate information
+        - Reference their interview performance when relevant
+        - Maintain encouraging and supportive tone
+        - Give specific timelines or next steps if asked
+        - Offer practical career guidance when appropriate
         
-        **Keep responses:**
-        - Concise but informative
-        - Professional but warm
-        - Honest but encouraging
-        - Focused on being helpful
+        **Style:** Professional yet warm, informative but concise, focused on being genuinely helpful.
         
-        Generate a helpful response:
+        Generate a helpful response to their question:
         """

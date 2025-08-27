@@ -41,22 +41,37 @@ class TalentScoutApp:
     def run(self):
         """Main app with navigation"""
         st.set_page_config(
-            page_title="🎯 TalentScout AI Platform",
-            page_icon="🎯",
+            page_title="  TalentScout AI Platform",
+            page_icon="🤖",
             layout="wide"
         )
 
+        # Initialize navigation state
+        if 'current_page' not in st.session_state:
+            st.session_state.current_page = "👤 Candidate Interview"
+
+        # Handle programmatic navigation
+        if 'switch_to_dashboard' in st.session_state and st.session_state.switch_to_dashboard:
+            st.session_state.current_page = "👨‍💼 Manager Dashboard"
+            st.session_state.switch_to_dashboard = False
+
         # Sidebar Navigation
         with st.sidebar:
-            st.title("🎯 TalentScout AI")
+            st.title("  TalentScout AI")
             st.markdown("**AI-Powered Hiring Platform**")
             st.divider()
             
+            page_options = ["👤 Candidate Interview", "👨‍💼 Manager Dashboard"]
             page = st.radio(
                 "Navigate to:",
-                ["👤 Candidate Interview", "👨‍💼 Manager Dashboard"],
-                key="navigation"
+                page_options,
+                index=page_options.index(st.session_state.current_page),
+                key="navigation_radio"
             )
+            
+            # Update current page if user manually changes it
+            if page != st.session_state.current_page:
+                st.session_state.current_page = page
             
             st.divider()
             st.markdown("### 📊 Quick Stats")
@@ -81,16 +96,79 @@ class TalentScoutApp:
             except Exception as e:
                 st.metric("Status", "Loading...")
 
+            # Interview status in sidebar (for candidate page)
+            if st.session_state.current_page == "👤 Candidate Interview" and hasattr(st.session_state, 'user_email') and st.session_state.user_email:
+                self.show_interview_status_sidebar()
+
         # Route to appropriate page
-        if page == "👤 Candidate Interview":
+        if st.session_state.current_page == "👤 Candidate Interview":
             self.candidate_interview_page()
-        elif page == "👨‍💼 Manager Dashboard":
+        elif st.session_state.current_page == "👨‍💼 Manager Dashboard":
             self.manager_dashboard_page()
+
+    def show_interview_status_sidebar(self):
+        """Show interview status in sidebar"""
+        email = st.session_state.user_email
+        conv_state = self.db.get_conversation_state(email)
+        
+        if conv_state:
+            st.divider()
+            st.markdown("###   Interview Status")
+            
+            candidate_data = self.db.get_candidate_data(email)
+            if candidate_data:
+                st.write(f"**👤 {candidate_data['full_name']}**")
+                st.write(f"📋 {candidate_data['desired_position']}")
+                st.write(f"⏱️ {candidate_data['years_experience']} years exp")
+            
+            status_display = {
+                ConversationStates.CONVERSATIONAL_INTRO: "💭 Getting to Know You",
+                ConversationStates.DYNAMIC_INTERVIEW: "  Technical Interview",
+                ConversationStates.REAL_TIME_ANALYSIS: "📊 Performance Analysis",
+                ConversationStates.POST_INTERVIEW_QA: "💬 Q&A Session",
+                ConversationStates.CONVERSATION_TERMINATED: "✅ Complete"
+            }
+            
+            current_status = status_display.get(conv_state['current_state'], conv_state['current_state'])
+            
+            # Status with color coding
+            if conv_state['current_state'] == ConversationStates.CONVERSATION_TERMINATED:
+                st.success(f"**Status:** {current_status}")
+            elif conv_state['current_state'] == ConversationStates.DYNAMIC_INTERVIEW:
+                st.info(f"**Status:** {current_status}")
+                questions_asked = len(self.db.get_interview_qa_with_feedback(email))
+                st.write(f"**Questions Asked:** {questions_asked}/5")
+            else:
+                st.write(f"**Status:** {current_status}")
+            
+            # Progress bar for interview
+            if conv_state['current_state'] == ConversationStates.DYNAMIC_INTERVIEW:
+                questions_asked = len(self.db.get_interview_qa_with_feedback(email))
+                progress = questions_asked / 5
+                st.progress(progress)
+            elif conv_state['current_state'] in [ConversationStates.REAL_TIME_ANALYSIS, ConversationStates.POST_INTERVIEW_QA, ConversationStates.CONVERSATION_TERMINATED]:
+                st.progress(1.0)
+            
+            st.divider()
+            
+            # Control buttons
+            if st.button("🔄 Start New Interview", use_container_width=True):
+                self.db.clear_conversation(email)
+                self.memory.clear_memory(email)
+                st.session_state.user_email = None
+                st.session_state.form_submitted = False
+                st.rerun()
+            
+            # ONLY show analysis button when conversation is terminated
+            if conv_state['current_state'] == ConversationStates.CONVERSATION_TERMINATED:
+                if st.button("📊 View Analysis", use_container_width=True):
+                    st.session_state.switch_to_dashboard = True
+                    st.rerun()
 
     def candidate_interview_page(self):
         """Candidate interview interface"""
         # Header
-        st.title("🎯 TalentScout AI Hiring Assistant")
+        st.title("  TalentScout AI Hiring Assistant")
         st.markdown("**Intelligent Conversational Technical Screening**")
         st.divider()
 
@@ -187,7 +265,8 @@ class TalentScoutApp:
 
             # Show conversation ended message if terminated
             if conv_state and conv_state['current_state'] == ConversationStates.CONVERSATION_TERMINATED:
-                st.success("✅ Interview Complete! Thank you for completing your conversational interview! You can now close this window.")
+                st.success("✅ Interview Complete! Thank you for completing your conversational interview!")
+                st.info("💡 **Tip:** You can now switch to the Manager Dashboard to see your analysis, or start a new interview using the sidebar.")
 
             # Chat input (hide when terminated)
             if conv_state and conv_state['current_state'] != ConversationStates.CONVERSATION_TERMINATED:
@@ -206,43 +285,9 @@ class TalentScoutApp:
                     
                     st.rerun()
 
-            # Interview status in main area (since sidebar is used for navigation)
-            if conv_state:
-                with st.expander("📊 Interview Status", expanded=False):
-                    candidate_data = self.db.get_candidate_data(email)
-                    if candidate_data:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write(f"**Candidate:** {candidate_data['full_name']}")
-                        with col2:
-                            st.write(f"**Position:** {candidate_data['desired_position']}")
-                        with col3:
-                            st.write(f"**Experience:** {candidate_data['years_experience']} years")
-                    
-                    status_display = {
-                        ConversationStates.CONVERSATIONAL_INTRO: "Getting to Know You 💭",
-                        ConversationStates.DYNAMIC_INTERVIEW: "Technical Interview 🎯",
-                        ConversationStates.REAL_TIME_ANALYSIS: "Performance Analysis 📊",
-                        ConversationStates.POST_INTERVIEW_QA: "Q&A Session 💬",
-                        ConversationStates.CONVERSATION_TERMINATED: "Complete ✅"
-                    }
-                    
-                    current_status = status_display.get(conv_state['current_state'], conv_state['current_state'])
-                    st.write(f"**Status:** {current_status}")
-                    
-                    if conv_state['current_state'] == ConversationStates.DYNAMIC_INTERVIEW:
-                        st.write(f"**Questions Asked:** {conv_state['current_question_number'] - 1}")
-                
-                if st.button("🔄 Start New Interview"):
-                    self.db.clear_conversation(email)
-                    self.memory.clear_memory(email)
-                    st.session_state.user_email = None
-                    st.session_state.form_submitted = False
-                    st.rerun()
-
     def manager_dashboard_page(self):
         """Manager dashboard interface"""
-        st.title("🎯 Manager Dashboard")
+        st.title("  Manager Dashboard")
         st.markdown("**Complete candidate analysis and interview management**")
         st.divider()
 
@@ -333,7 +378,7 @@ class TalentScoutApp:
                         st.write("Not analyzed yet")
                 
                 with col4:
-                    st.write("**🎯 Status**")
+                    st.write("**  Status**")
                     if analysis:
                         score = analysis['overall_score']
                         if score >= 8:
@@ -567,9 +612,9 @@ class TalentScoutApp:
         for rec in recommendations:
             st.write(f"💡 {rec}")
 
-    # All the conversation processing methods from original main.py
+    # FIXED CONVERSATION FLOW - Main conversation processing logic
     def process_conversation(self, email, user_input):
-        """Main conversational processing logic"""
+        """Main conversational processing logic with fixed flow"""
         conv_state = self.db.get_conversation_state(email)
         
         if not conv_state:
@@ -580,29 +625,33 @@ class TalentScoutApp:
         # Save user message to chat history
         self.db.save_message(email, "user", user_input)
         
-        # Route to appropriate handler
-        if current_state == ConversationStates.CONVERSATIONAL_INTRO:
-            return self._handle_conversational_intro(email, user_input, conv_state)
-        
-        elif current_state == ConversationStates.DYNAMIC_INTERVIEW:
-            return self._handle_dynamic_interview(email, user_input, conv_state)
-        
-        elif current_state == ConversationStates.REAL_TIME_ANALYSIS:
-            return self._handle_real_time_analysis(email, user_input, conv_state)
-        
-        elif current_state == ConversationStates.POST_INTERVIEW_QA:
-            return self._handle_post_interview_qa(email, user_input, conv_state)
-        
-        elif current_state == ConversationStates.CONVERSATION_TERMINATED:
-            return self._handle_terminated_state(email, user_input, conv_state)
-        
-        return "I'm not sure how to help with that. Could you please clarify?"
+        try:
+            # Route to appropriate handler based on current state
+            if current_state == ConversationStates.CONVERSATIONAL_INTRO:
+                response = self._handle_conversational_intro(email, user_input, conv_state)
+            elif current_state == ConversationStates.DYNAMIC_INTERVIEW:
+                response = self._handle_dynamic_interview(email, user_input, conv_state)
+            elif current_state == ConversationStates.REAL_TIME_ANALYSIS:
+                response = self._handle_real_time_analysis(email, user_input, conv_state)
+            elif current_state == ConversationStates.POST_INTERVIEW_QA:
+                response = self._handle_post_interview_qa(email, user_input, conv_state)
+            elif current_state == ConversationStates.CONVERSATION_TERMINATED:
+                response = self._handle_terminated_state(email, user_input, conv_state)
+            else:
+                response = "I'm not sure how to help with that. Could you please clarify?"
+            
+            self.db.save_message(email, "assistant", response)
+            return response
+        except Exception as e:
+            fallback_response = "I apologize for the technical issue. Let's continue - could you please repeat your response?"
+            self.db.save_message(email, "assistant", fallback_response)
+            return fallback_response
 
     def _handle_conversational_intro(self, email, user_input, conv_state):
-        """Handle natural conversation before technical questions"""
+        """FIXED: Handle intro conversation with proper pacing"""
         candidate_data = self.db.get_candidate_data(email)
         
-        # Parse tech stack for prompts
+        # Parse tech stack safely
         tech_stack_raw = candidate_data.get('tech_stack', '[]')
         if isinstance(tech_stack_raw, str):
             try:
@@ -610,33 +659,38 @@ class TalentScoutApp:
             except:
                 candidate_data['tech_stack'] = []
         
-        # Get conversation context
-        conversation_context = self.db.get_conversation_context(email)
+        # Check exchange count BEFORE processing current exchange
+        current_exchange_count = self.db.get_conversation_exchange_count(email)
         
-        # Generate conversational response
+        # Generate conversational response first
+        conversation_context = self.db.get_conversation_context(email)
         response = self._generate_conversational_response(candidate_data, conversation_context, user_input)
         
-        # Save conversation exchange to memory
+        # Save this exchange to conversation memory
         self.db.save_conversation_exchange(email, user_input, response)
         
-        # Check if ready for technical questions (after 3-4 exchanges)
-        exchange_count = self.db.get_conversation_exchange_count(email)
-        
-        if exchange_count >= 3:
-            # Transition to technical interview
-            response += "\n\n🎯 **Great! I have a good sense of your background now. Let's start with some technical questions that build on what you've shared. Ready?**"
+        # Check if we should transition (after 4-5 exchanges, not 3)
+        if current_exchange_count >= 4:
+            # Add gentle transition hint, but don't transition yet
+            response += "\n\n💭 *I'm getting a great sense of your background and interests. I think we're ready to explore some technical areas together soon.*"
+        elif current_exchange_count >= 5:
+            # Now actually transition - but in NEXT response, not this one
+            response += "\n\n🎯 **Perfect! I have a good understanding of your background now. Let me ask you some technical questions that build on what you've shared.**"
             
+            # Set a flag for next response to start technical questions
             self.db.create_or_update_conversation(email, ConversationStates.DYNAMIC_INTERVIEW, question_number=1)
         
-        self.db.save_message(email, "assistant", response)
         return response
 
-    def _handle_dynamic_interview(self, email, user_answer, conv_state):
-        """Handle dynamic interview with real-time feedback"""
-        candidate_data = self.db.get_candidate_data(email)
-        current_q_num = conv_state['current_question_number']
+
         
-        # Parse tech stack
+
+
+    def _handle_dynamic_interview(self, email, user_answer, conv_state):
+        """FIXED: Handle technical interview start properly"""
+        candidate_data = self.db.get_candidate_data(email)
+        
+        # Parse tech stack safely
         tech_stack_raw = candidate_data.get('tech_stack', '[]')
         if isinstance(tech_stack_raw, str):
             try:
@@ -648,26 +702,35 @@ class TalentScoutApp:
         previous_qa = self.db.get_interview_qa_with_feedback(email)
         conversation_context = self.db.get_conversation_context(email)
         
-        # If this is an answer to a question
-        if previous_qa or current_q_num > 1:
-            # Get the last question that was asked
-            last_question = previous_qa[-1]['question'] if previous_qa else "Introduction question"
+        # If this is the FIRST time in technical interview (no Q&As yet)
+        if len(previous_qa) == 0:
+            # This is the transition response - generate first technical question
+            first_question = self._generate_first_technical_question(candidate_data, conversation_context)
+            
+            # Save the first question to Q&A tracking
+            self.db.save_interview_qa_with_feedback(email, 1, first_question, "", None, None)
+            
+            # Return just the first question, cleanly
+            return first_question
+        
+        # Rest of the existing logic for subsequent Q&As...
+        if len(previous_qa) > 0:
+            last_question = previous_qa[-1]['question']
             
             # Generate real-time feedback for the answer
             feedback = self.analyzer.analyze_answer_realtime(last_question, user_answer, candidate_data)
             
-            # Save Q&A with feedback
+            # Update the last Q&A with feedback
             self.db.save_interview_qa_with_feedback(
-                email, current_q_num, last_question, user_answer, 
+                email, len(previous_qa), last_question, user_answer, 
                 feedback.get('score', 0), feedback.get('encouraging_feedback', '')
             )
             
-            # Update previous Q&A list
+            # Refresh previous Q&As
             previous_qa = self.db.get_interview_qa_with_feedback(email)
             
-            # Check if we've completed enough questions (5-6)
+            # Check if we've completed enough questions (5)
             if len(previous_qa) >= 5:
-                # Move to comprehensive analysis
                 self.db.create_or_update_conversation(email, ConversationStates.REAL_TIME_ANALYSIS)
                 
                 comprehensive_analysis = self.analyzer.generate_comprehensive_analysis(
@@ -681,45 +744,39 @@ class TalentScoutApp:
                 candidate_data, previous_qa, conversation_context, feedback
             )
             
+            # Save the next question to Q&A tracking
+            next_q_num = len(previous_qa) + 1
+            self.db.save_interview_qa_with_feedback(email, next_q_num, next_question, "", None, None)
+            
             # Combine feedback and next question
             response = f"**{feedback.get('encouraging_feedback', 'Great answer!')}** 👍\n\n{next_question}"
             
-        else:
-            # This is the start - generate first technical question
-            first_question = self._generate_first_technical_question(candidate_data, conversation_context)
-            response = f"Perfect! Let's dive into some technical areas now.\n\n{first_question}"
+            return response
         
-        # Update question number for next iteration
-        next_q_num = current_q_num + 1
-        self.db.create_or_update_conversation(email, question_number=next_q_num)
-        
-        self.db.save_message(email, "assistant", response)
-        return response
+        return "Let's continue with the technical discussion."
+
 
     def _handle_real_time_analysis(self, email, user_input, conv_state):
         """Handle post-analysis interactions"""
-        # Check for continuation keywords
         continue_keywords = ["yes", "continue", "more", "tell me more", "explain"]
         end_keywords = ["no", "done", "finish", "goodbye", "bye", "thanks"]
         
         if any(keyword in user_input.lower() for keyword in end_keywords):
             self.db.create_or_update_conversation(email, ConversationStates.POST_INTERVIEW_QA)
             
-            response = f"Perfect! Thank you for completing the interview, {conv_state['user_name']}! 🎉\n\n💬 **Feel free to ask me any questions about the process, timeline, or next steps. I'm here to help!**\n\nOr say **'goodbye'** when you're ready to end our conversation."
+            response = f"Perfect! Thank you for completing the interview, {conv_state.get('user_name', '')}! 🎉\n\n💬 **Feel free to ask me any questions about the process, timeline, or next steps. I'm here to help!**\n\nOr say **'goodbye'** when you're ready to end our conversation."
             
         elif any(keyword in user_input.lower() for keyword in continue_keywords):
             # Provide more detailed analysis or tips
             analysis = self.db.get_candidate_analysis(email)
             if analysis:
-                response = self._provide_detailed_tips(analysis, conv_state['user_name'])
+                response = self._provide_detailed_tips(analysis, conv_state.get('user_name', ''))
             else:
                 response = "I'd love to provide more details, but I'm having trouble accessing your analysis. Feel free to ask any other questions!"
         
         else:
-            # General response
             response = "Is there anything specific you'd like to know more about regarding your performance or next steps? You can ask for more details or say 'done' when you're ready to finish."
         
-        self.db.save_message(email, "assistant", response)
         return response
 
     def _handle_post_interview_qa(self, email, user_input, conv_state):
@@ -729,9 +786,8 @@ class TalentScoutApp:
         if any(keyword in user_input.lower() for keyword in ending_keywords):
             self.db.create_or_update_conversation(email, ConversationStates.CONVERSATION_TERMINATED)
             
-            response = f"Thank you for your time, {conv_state['user_name']}! 🙏\n\nYour interview has been completed and recorded. Our team will review your responses and get back to you soon.\n\nWe appreciate your interest in joining our team. Have a great day! ✨\n\n*This conversation has ended. You can close this window.*"
+            response = f"Thank you for your time, {conv_state.get('user_name', '')}! 🙏\n\nYour interview has been completed and recorded. Our team will review your responses and get back to you soon.\n\nWe appreciate your interest in joining our team. Have a great day! ✨\n\n*This conversation has ended. You can close this window.*"
             
-            self.db.save_message(email, "assistant", response)
             return response
         
         # Generate context-based response
@@ -745,31 +801,28 @@ class TalentScoutApp:
         
         response += f"\n\nAnything else you'd like to know? Feel free to ask, or say **'goodbye'** when you're ready to end our conversation."
         
-        self.db.save_message(email, "assistant", response)
         return response
 
     def _handle_terminated_state(self, email, user_input, conv_state):
         """Handle terminated conversation state"""
         response = "This conversation has ended. Thank you for your time!"
-        self.db.save_message(email, "assistant", response)
         return response
 
-    # Helper methods for generating responses
+    # Helper methods for AI generation
     def _generate_conversational_response(self, candidate_data, conversation_history, user_input):
         """Generate natural conversational response"""
         prompt = self.prompts.get_conversational_response_prompt(candidate_data, conversation_history, user_input)
         
         try:
             response = self.groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="openai/gpt-oss-20b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=800
+                max_tokens=400
             )
             
             return response.choices[0].message.content.strip()
         except Exception as e:
-            st.error(f"Error generating response: {str(e)}")
             return "That's interesting! Tell me more about your experience and what you're currently working on."
 
     def _generate_first_technical_question(self, candidate_data, conversation_context):
@@ -778,18 +831,17 @@ class TalentScoutApp:
         
         try:
             response = self.groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="openai/gpt-oss-20b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=600
+                max_tokens=400
             )
             
             return response.choices[0].message.content.strip()
         except Exception as e:
-            st.error(f"Error generating first question: {str(e)}")
             tech_stack = candidate_data.get('tech_stack', [])
             main_tech = tech_stack[0] if tech_stack else 'programming'
-            return f"Let's start with your experience in {main_tech}. Can you walk me through a project where you used {main_tech} and what you learned from it?"
+            return f"Let's start with your experience in {main_tech}. Can you walk me through a recent project where you used {main_tech} and what you learned from it?"
 
     def _generate_next_dynamic_question(self, candidate_data, previous_qa, conversation_context, last_feedback):
         """Generate next dynamic question based on previous performance"""
@@ -799,15 +851,14 @@ class TalentScoutApp:
         
         try:
             response = self.groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="openai/gpt-oss-20b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=600
+                max_tokens=400
             )
             
             return response.choices[0].message.content.strip()
         except Exception as e:
-            st.error(f"Error generating next question: {str(e)}")
             return "That's a good foundation! Let's explore another area. Can you tell me about a technical challenge you faced recently and how you solved it?"
 
     def _generate_context_based_response(self, user_question, candidate_data, interview_qa, conversation_context):
@@ -818,15 +869,14 @@ class TalentScoutApp:
         
         try:
             response = self.groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="openai/gpt-oss-20b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=700
+                max_tokens=400
             )
             
             return response.choices[0].message.content.strip()
         except Exception as e:
-            st.error(f"Error generating response: {str(e)}")
             return "I apologize, but I'm having trouble processing your question right now. Our team will be in touch with you soon regarding next steps."
 
     def _present_comprehensive_analysis(self, email, conv_state, analysis):
@@ -865,7 +915,7 @@ class TalentScoutApp:
         growth_text = "\n".join([f"• {area}" for area in growth_areas])
         recommendations_text = "\n".join([f"• {rec}" for rec in recommendations])
         
-        analysis_response = f"""🎉 **Interview Complete!** Thank you, {conv_state['user_name']}!
+        analysis_response = f"""🎉 **Interview Complete!** Thank you, {conv_state.get('user_name', '')}!
 
 📊 **Your Performance Analysis:**
 
@@ -880,7 +930,7 @@ class TalentScoutApp:
 📈 **Areas for Growth:**
 {growth_text}
 
-🎯 **Personalized Recommendations:**
+  **Personalized Recommendations:**
 {recommendations_text}
 
 **Summary:** {analysis.get('summary_feedback', 'You showed good technical understanding and communication skills.')}
@@ -896,7 +946,6 @@ class TalentScoutApp:
 
 Would you like me to explain any part of this analysis in more detail? Or do you have questions about the next steps?"""
         
-        self.db.save_message(email, "assistant", analysis_response)
         return analysis_response
 
     def _provide_detailed_tips(self, analysis, user_name):

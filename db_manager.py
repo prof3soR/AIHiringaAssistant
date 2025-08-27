@@ -1,12 +1,18 @@
+import os
 import sqlite3
 import json
 from datetime import datetime
 
 class DatabaseManager:
-    def __init__(self, db_path='talentscout_chat.db'):
+    def __init__(self, db_path=None):
+        if db_path is None:
+            # Use absolute path in project root for both interview and dashboard
+            project_root = os.path.dirname(os.path.abspath(__file__))
+            db_path = os.path.join(project_root, 'talentscout_chat.db')
+        
         self.db_path = db_path
         self.init_database()
-    
+
     def init_database(self):
         """Initialize all database tables"""
         conn = sqlite3.connect(self.db_path)
