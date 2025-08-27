@@ -12,7 +12,7 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Candidates table
+        # Existing tables...
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS candidates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,12 +28,11 @@ class DatabaseManager:
         )
         ''')
         
-        # Conversations table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE,
-            current_state TEXT DEFAULT 'GREETING',
+            current_state TEXT DEFAULT 'INTERVIEW_PREP',
             user_name TEXT,
             candidate_id INTEGER,
             current_question_number INTEGER DEFAULT 0,
@@ -43,7 +42,6 @@ class DatabaseManager:
         )
         ''')
         
-        # Chat messages table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +52,6 @@ class DatabaseManager:
         )
         ''')
         
-        # Interview Q&A table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS interview_qa (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,14 +59,160 @@ class DatabaseManager:
             question_number INTEGER,
             question_text TEXT,
             user_answer TEXT,
-            follow_up_generated BOOLEAN DEFAULT FALSE,
+            feedback_score REAL,
+            feedback_text TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS candidate_analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_id INTEGER,
+            email TEXT,
+            overall_score REAL,
+            technical_score REAL,
+            communication_score REAL,
+            problem_solving_score REAL,
+            key_strengths TEXT,
+            areas_for_growth TEXT,
+            specific_recommendations TEXT,
+            hiring_recommendation TEXT,
+            summary_feedback TEXT,
+            detailed_analysis TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (candidate_id) REFERENCES candidates (id)
+        )
+        ''')
+        
+        # New table for conversation memory
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversation_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            role TEXT,
+            content TEXT,
+            timestamp REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS manager_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_id INTEGER,
+            manager_id TEXT,
+            action TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (candidate_id) REFERENCES candidates (id)
         )
         ''')
         
         conn.commit()
         conn.close()
     
+    # Conversation Memory Methods
+    def save_conversation_exchange(self, email, user_input, bot_response):
+        """Save conversation exchange to memory"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        timestamp = datetime.now().timestamp()
+        
+        cursor.execute('''
+        INSERT INTO conversation_memory (email, role, content, timestamp)
+        VALUES (?, ?, ?, ?)
+        ''', (email, 'user', user_input, timestamp))
+        
+        cursor.execute('''
+        INSERT INTO conversation_memory (email, role, content, timestamp)
+        VALUES (?, ?, ?, ?)
+        ''', (email, 'assistant', bot_response, timestamp))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_conversation_context(self, email, last_n=6):
+        """Get recent conversation context"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT role, content, timestamp FROM conversation_memory 
+        WHERE email = ? 
+        ORDER BY timestamp DESC 
+        LIMIT ?
+        ''', (email, last_n))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        # Reverse to get chronological order
+        return [{'role': r[0], 'content': r[1], 'timestamp': r[2]} for r in reversed(results)]
+    
+    def get_conversation_exchange_count(self, email):
+        """Get number of conversation exchanges"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT COUNT(*) FROM conversation_memory 
+        WHERE email = ? AND role = 'user'
+        ''', (email,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result[0] if result else 0
+    
+    def clear_conversation_memory(self, email):
+        """Clear conversation memory for email"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM conversation_memory WHERE email = ?", (email,))
+        conn.commit()
+        conn.close()
+    
+    # Enhanced Interview Q&A Methods
+    def save_interview_qa_with_feedback(self, email, question_number, question_text, user_answer, feedback_score=None, feedback_text=None):
+        """Save interview Q&A with real-time feedback"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        INSERT INTO interview_qa (email, question_number, question_text, user_answer, feedback_score, feedback_text)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ''', (email, question_number, question_text, user_answer, feedback_score, feedback_text))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_interview_qa_with_feedback(self, email):
+        """Get all interview Q&A with feedback"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT question_text, user_answer, feedback_score, feedback_text, question_number 
+        FROM interview_qa 
+        WHERE email = ? 
+        ORDER BY question_number ASC
+        ''', (email,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [{
+            'question': r[0], 
+            'answer': r[1], 
+            'feedback_score': r[2],
+            'feedback_text': r[3],
+            'question_number': r[4]
+        } for r in results]
+    
+    # Existing methods (keeping the essential ones)...
     def get_conversation_state(self, email):
         """Get current conversation state from database"""
         if not email:
@@ -104,7 +247,6 @@ class DatabaseManager:
         existing = self.get_conversation_state(email)
         
         if existing:
-            # Update existing conversation
             updates = []
             values = []
             
@@ -130,11 +272,198 @@ class DatabaseManager:
             query = f"UPDATE conversations SET {', '.join(updates)} WHERE email = ?"
             cursor.execute(query, values)
         else:
-            # Create new conversation
             cursor.execute('''
             INSERT INTO conversations (email, current_state, user_name, candidate_id, current_question_number, generated_questions)
             VALUES (?, ?, ?, ?, ?, ?)
-            ''', (email, state or 'GREETING', user_name, candidate_id, question_number or 0, json.dumps(generated_questions) if generated_questions else None))
+            ''', (email, state or 'INTERVIEW_PREP', user_name, candidate_id, question_number or 0, json.dumps(generated_questions) if generated_questions else None))
+        
+        conn.commit()
+        conn.close()
+    
+    def save_candidate_to_db(self, candidate_data, resume_text=""):
+        """Save candidate information to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            tech_stack = candidate_data.get('tech_stack', [])
+            if isinstance(tech_stack, list):
+                tech_stack_json = json.dumps(tech_stack)
+            else:
+                tech_stack_json = tech_stack
+                
+            cursor.execute('''
+            INSERT INTO candidates (full_name, email, phone, years_experience, 
+                                  desired_position, current_location, tech_stack, raw_resume_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                candidate_data.get('full_name', ''),
+                candidate_data.get('email', ''),
+                candidate_data.get('phone', ''),
+                candidate_data.get('years_experience', 0),
+                candidate_data.get('desired_position', ''),
+                candidate_data.get('current_location', ''),
+                tech_stack_json,
+                resume_text or ''
+            ))
+            
+            conn.commit()
+            candidate_id = cursor.lastrowid
+            return candidate_id
+        except Exception as e:
+            print(f"Error saving to database: {str(e)}")
+            return None
+        finally:
+            conn.close()
+    
+    def get_candidate_data(self, email):
+        """Get candidate data by email"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM candidates WHERE email = ?", (email,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'id': result[0],
+                'full_name': result[1],
+                'email': result[2],
+                'phone': result[3],
+                'years_experience': result[4],
+                'desired_position': result[5],
+                'current_location': result[6],
+                'tech_stack': result[7],
+                'raw_resume_text': result[8],
+                'created_at': result[9]
+            }
+        return None
+    
+    def save_comprehensive_analysis(self, candidate_id, email, analysis_data):
+        """Save comprehensive interview analysis"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("SELECT id FROM candidate_analysis WHERE email = ?", (email,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                cursor.execute('''
+                UPDATE candidate_analysis SET
+                    overall_score = ?, technical_score = ?, communication_score = ?,
+                    problem_solving_score = ?, key_strengths = ?, areas_for_growth = ?,
+                    specific_recommendations = ?, hiring_recommendation = ?, 
+                    summary_feedback = ?, detailed_analysis = ?
+                WHERE email = ?
+                ''', (
+                    analysis_data.get('overall_score', 0),
+                    analysis_data.get('technical_score', 0),
+                    analysis_data.get('communication_score', 0),
+                    analysis_data.get('problem_solving_score', 0),
+                    json.dumps(analysis_data.get('key_strengths', [])),
+                    json.dumps(analysis_data.get('areas_for_growth', [])),
+                    json.dumps(analysis_data.get('specific_recommendations', [])),
+                    analysis_data.get('hiring_recommendation', ''),
+                    analysis_data.get('summary_feedback', ''),
+                    analysis_data.get('detailed_analysis', ''),
+                    email
+                ))
+            else:
+                cursor.execute('''
+                INSERT INTO candidate_analysis 
+                (candidate_id, email, overall_score, technical_score, communication_score,
+                 problem_solving_score, key_strengths, areas_for_growth, specific_recommendations,
+                 hiring_recommendation, summary_feedback, detailed_analysis)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    candidate_id, email,
+                    analysis_data.get('overall_score', 0),
+                    analysis_data.get('technical_score', 0),
+                    analysis_data.get('communication_score', 0),
+                    analysis_data.get('problem_solving_score', 0),
+                    json.dumps(analysis_data.get('key_strengths', [])),
+                    json.dumps(analysis_data.get('areas_for_growth', [])),
+                    json.dumps(analysis_data.get('specific_recommendations', [])),
+                    analysis_data.get('hiring_recommendation', ''),
+                    analysis_data.get('summary_feedback', ''),
+                    analysis_data.get('detailed_analysis', '')
+                ))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error saving analysis: {str(e)}")
+            return False
+        finally:
+            conn.close()
+    
+    def get_candidate_analysis(self, email):
+        """Get comprehensive candidate analysis"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM candidate_analysis WHERE email = ?", (email,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'id': result[0],
+                'candidate_id': result[1],
+                'email': result[2],
+                'overall_score': result[3],
+                'technical_score': result[4],
+                'communication_score': result[5],
+                'problem_solving_score': result[6],
+                'key_strengths': result[7],
+                'areas_for_growth': result[8],
+                'specific_recommendations': result[9],
+                'hiring_recommendation': result[10],
+                'summary_feedback': result[11],
+                'detailed_analysis': result[12],
+                'created_at': result[13]
+            }
+        return None
+    
+    # Manager Dashboard Methods
+    def get_completed_candidates(self):
+        """Get all candidates who completed interviews"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT c.* FROM candidates c
+        JOIN conversations conv ON c.email = conv.email
+        WHERE conv.current_state IN ('REAL_TIME_ANALYSIS', 'POST_INTERVIEW_QA', 'CONVERSATION_TERMINATED')
+        ORDER BY c.created_at DESC
+        ''')
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        candidates = []
+        for result in results:
+            candidates.append({
+                'id': result[0], 'full_name': result[1], 'email': result[2],
+                'phone': result[3], 'years_experience': result[4],
+                'desired_position': result[5], 'current_location': result[6],
+                'tech_stack': result[7], 'raw_resume_text': result[8], 'created_at': result[9]
+            })
+        
+        return candidates
+    
+    def clear_conversation(self, email):
+        """Clear all conversation data for an email"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM conversations WHERE email = ?", (email,))
+        cursor.execute("DELETE FROM chat_messages WHERE email = ?", (email,))
+        cursor.execute("DELETE FROM interview_qa WHERE email = ?", (email,))
+        cursor.execute("DELETE FROM conversation_memory WHERE email = ?", (email,))
         
         conn.commit()
         conn.close()
@@ -168,127 +497,3 @@ class DatabaseManager:
         conn.close()
         
         return [{'type': msg[0], 'content': msg[1], 'timestamp': msg[2]} for msg in messages]
-    
-    def save_candidate_to_db(self, candidate_data, resume_text):
-        """Save candidate information to database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute('''
-            INSERT INTO candidates (full_name, email, phone, years_experience, 
-                                  desired_position, current_location, tech_stack, raw_resume_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                candidate_data['full_name'],
-                candidate_data['email'],
-                candidate_data['phone'],
-                candidate_data['years_experience'],
-                candidate_data['desired_position'],
-                candidate_data['current_location'],
-                json.dumps(candidate_data['tech_stack']),
-                resume_text
-            ))
-            
-            conn.commit()
-            candidate_id = cursor.lastrowid
-            return candidate_id
-        except Exception as e:
-            print(f"Error saving to database: {str(e)}")
-            return None
-        finally:
-            conn.close()
-    
-    def update_candidate_info(self, email, field, value):
-        """Update specific candidate information"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute(f'''
-            UPDATE candidates SET {field} = ? WHERE email = ?
-            ''', (value, email))
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"Error updating candidate info: {str(e)}")
-            return False
-        finally:
-            conn.close()
-    
-    def save_interview_qa(self, email, question_number, question_text, user_answer):
-        """Save interview Q&A to database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        INSERT INTO interview_qa (email, question_number, question_text, user_answer)
-        VALUES (?, ?, ?, ?)
-        ''', (email, question_number, question_text, user_answer))
-        
-        conn.commit()
-        conn.close()
-    
-    def get_candidate_data(self, email):
-        """Get candidate data by email"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM candidates WHERE email = ?", (email,))
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'id': result[0],
-                'full_name': result[1],
-                'email': result[2],
-                'phone': result[3],
-                'years_experience': result[4],
-                'desired_position': result[5],
-                'current_location': result[6],
-                'tech_stack': json.loads(result[7]) if result[7] else [],
-                'raw_resume_text': result[8]
-            }
-        return None
-    
-    def clear_conversation(self, email):
-        """Clear all conversation data for an email"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM conversations WHERE email = ?", (email,))
-        cursor.execute("DELETE FROM chat_messages WHERE email = ?", (email,))
-        cursor.execute("DELETE FROM interview_qa WHERE email = ?", (email,))
-        
-        conn.commit()
-        conn.close()
-        
-    def get_interview_qa(self, email):
-        """Get all interview Q&A for an email"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT question_text, user_answer FROM interview_qa 
-        WHERE email = ? 
-        ORDER BY question_number ASC
-        ''', (email,))
-        
-        results = cursor.fetchall()
-        conn.close()
-        
-        return [{'question': r[0], 'answer': r[1]} for r in results]
-
-    def update_interview_answer(self, email, question_number, new_answer):
-        """Update an interview answer"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        UPDATE interview_qa SET user_answer = ? 
-        WHERE email = ? AND question_number = ?
-        ''', (new_answer, email, question_number))
-        
-        conn.commit()
-        conn.close()

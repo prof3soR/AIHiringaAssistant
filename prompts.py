@@ -1,168 +1,243 @@
 class PromptsManager:
     
     @staticmethod
-    def get_resume_extraction_prompt(resume_text):
-        """Prompt for extracting information from resume"""
-        return f"""
-        You are an expert HR assistant. Extract the following information from the resume text provided.
-        Return the information in JSON format with these exact keys:
+    def get_conversational_response_prompt(candidate_data, conversation_history, user_input):
+        """Generate natural conversational responses before technical questions"""
         
-        {{
-            "full_name": "candidate's full name",
-            "email": "email address", 
-            "phone": "phone number",
-            "years_experience": "total years of experience (number only)",
-            "desired_position": "job title or position they're applying for",
-            "current_location": "city, state/country",
-            "tech_stack": ["list", "of", "technical", "skills", "programming", "languages", "frameworks", "tools"]
-        }}
-        
-        Rules:
-        1. If information is not found, use "Not found" for strings, 0 for numbers, or empty array for lists
-        2. For years_experience, calculate total years based on work history
-        3. Extract all technical skills, programming languages, frameworks, databases, tools
-        4. Be accurate and don't hallucinate information
-        5. For tech_stack, include everything technical mentioned in the resume
-        
-        Resume Text:
-        {resume_text}
-        
-        Return only the JSON object, no other text:
-        """
-    
-    @staticmethod
-    def get_question_generation_prompt(candidate_data, search_results):
-        """Prompt for generating interview questions"""
-        tech_stack_str = ", ".join(candidate_data['tech_stack'])
+        history_text = ""
+        for exchange in conversation_history[-4:]:  # Last 2 exchanges
+            role = "You" if exchange['role'] == 'assistant' else f"{candidate_data['full_name']}"
+            history_text += f"{role}: {exchange['content']}\n"
         
         return f"""
-        You are an expert technical interviewer. Based on the candidate's profile and web search results, 
-        generate exactly 5 technical interview questions.
+        You are a friendly, professional technical interviewer having a warm conversation with {candidate_data['full_name']} 
+        before starting the formal technical interview.
         
-        Candidate Profile:
-        - Name: {candidate_data['full_name']}
+        **Candidate Info:**
         - Position: {candidate_data['desired_position']}
         - Experience: {candidate_data['years_experience']} years
-        - Tech Stack: {tech_stack_str}
+        - Tech Stack: {', '.join(candidate_data.get('tech_stack', []))}
         
-        Web Search Results for Reference:
-        {search_results[:3000]}
+        **Conversation so far:**
+        {history_text}
         
-        Requirements:
-        1. Generate exactly 5 questions
-        2. Adjust difficulty for {candidate_data['years_experience']} years experience
-        3. Focus on their tech stack: {tech_stack_str}
-        4. Mix of conceptual and practical questions
-        5. Progressive difficulty (easier to harder)
-        6. Make questions complete and clear
+        **Latest input:** "{user_input}"
         
-        Return as JSON array:
-        {{
-            "questions": [
-                {{"id": 1, "question": "Complete question text here", "focus_area": "Technology area"}},
-                {{"id": 2, "question": "Complete question text here", "focus_area": "Technology area"}},
-                {{"id": 3, "question": "Complete question text here", "focus_area": "Technology area"}},
-                {{"id": 4, "question": "Complete question text here", "focus_area": "Technology area"}},
-                {{"id": 5, "question": "Complete question text here", "focus_area": "Technology area"}}
-            ]
-        }}
+        **Your role:**
+        - Be genuinely interested and encouraging
+        - Ask follow-up questions about their projects, interests, current work
+        - Keep it conversational and natural (not formal interview questions yet)
+        - Show enthusiasm about their background
+        - Make them feel comfortable and excited about the interview
         
-        Make sure each question is complete and properly formatted.
+        **Examples of good responses:**
+        - "That sounds fascinating! What got you interested in [specific technology]?"
+        - "I love that you're working on [project name]! What's been the most exciting part?"
+        - "It sounds like you have great hands-on experience. Tell me more about..."
+        
+        Respond naturally as a friendly interviewer getting to know them better.
         """
     
     @staticmethod
-    def get_follow_up_prompt(previous_qa, candidate_data):
-        """Prompt for generating follow-up questions"""
+    def get_first_technical_question_prompt(candidate_data, conversation_context):
+        """Generate the first technical question based on conversation"""
+        
+        context_summary = ""
+        for exchange in conversation_context:
+            if exchange['role'] == 'user':
+                context_summary += f"- {exchange['content'][:100]}...\n"
+        
         return f"""
-        You are conducting a technical interview. Based on the candidate's previous answer, 
-        generate ONE relevant follow-up question.
+        Based on your conversation with {candidate_data['full_name']}, generate the first technical question 
+        that feels natural and builds on what they've shared.
         
-        Candidate: {candidate_data['full_name']}
-        Position: {candidate_data['desired_position']}
-        Experience: {candidate_data['years_experience']} years
+        **What you learned about them:**
+        {context_summary}
         
-        Previous Question: {previous_qa['question']}
-        Candidate's Answer: {previous_qa['answer']}
+        **Their background:**
+        - Position: {candidate_data['desired_position']}
+        - Experience: {candidate_data['years_experience']} years
+        - Tech Stack: {', '.join(candidate_data.get('tech_stack', []))}
         
-        Generate a follow-up question that:
-        1. Digs deeper into their answer
-        2. Tests practical knowledge
-        3. Is appropriate for their experience level
-        4. Stays relevant to the tech stack
-        5. Is complete and clear
+        **Requirements:**
+        1. Reference something they mentioned in conversation
+        2. Start with appropriate difficulty for their level
+        3. Make it feel natural, not abrupt
+        4. Be encouraging and supportive in tone
         
-        Return ONLY the question text, nothing else. Make sure the question is complete.
+        **Format:** 
+        Start with a warm transition like "Great! Now let's dive into some technical areas..." 
+        then ask a question that connects to their interests/experience.
+        
+        Generate a natural first technical question:
         """
     
     @staticmethod
-    def get_information_update_prompt(user_input, current_info):
-        """Prompt for parsing information updates"""
+    def get_dynamic_next_question_prompt(candidate_data, previous_qa, conversation_context, last_feedback):
+        """Generate next question based on previous answer and feedback"""
+        
+        qa_history = ""
+        for i, qa in enumerate(previous_qa[-2:], len(previous_qa)-1):  # Last 2 Q&As
+            qa_history += f"Q{i}: {qa['question']}\nA{i}: {qa['answer'][:200]}...\n\n"
+        
         return f"""
-        The user wants to update their information. Parse their input and return what field they want to update.
+        You're conducting a natural technical interview with {candidate_data['full_name']}. 
+        Generate the next question based on their previous response.
         
-        Current Information:
-        {current_info}
+        **Previous Q&A:**
+        {qa_history}
         
-        User Input: "{user_input}"
+        **Last feedback given:** {last_feedback.get('encouraging_feedback', '')}
+        **Their demonstrated level:** {last_feedback.get('key_strength', '')}
         
-        Return JSON with the field to update:
-        {{
-            "field": "field_name", 
-            "value": "new_value",
-            "action": "update" or "confirm"
-        }}
+        **Next question should:**
+        1. Build naturally on their previous answer
+        2. Reference their response positively 
+        3. Adjust difficulty based on their performance
+        4. Feel conversational, not like a quiz
+        5. Progress logically through topics
         
-        Common fields: full_name, email, phone, years_experience, desired_position, current_location
-        If they're just confirming, set action to "confirm".
-        If updating location, the field should be "current_location".
+        **Format:**
+        - Start with brief encouraging comment about their last answer
+        - Naturally transition to next question
+        - Keep supportive, interview-like tone
+        
+        **Example structure:**
+        "Great explanation of [topic]! I can see you understand [concept] well. 
+        Now let's explore [related topic]..."
+        
+        Generate the next natural interview question:
         """
+    
     @staticmethod
-    def get_info_parsing_prompt(user_input, step):
-        """Prompt for parsing user information input"""
+    def get_real_time_feedback_prompt(question, answer, candidate_context):
+        """Generate encouraging real-time feedback for each answer"""
+        
         return f"""
-        Parse the user's input for step: {step}
+        You're a supportive technical interviewer providing immediate feedback on this answer.
         
-        User Input: "{user_input}"
+        **Question:** {question}
+        **Answer:** {answer}
+        **Candidate:** {candidate_context['full_name']} ({candidate_context['years_experience']} years experience)
         
-        Return JSON:
+        **Provide encouraging feedback that:**
+        1. Highlights what they did well (be specific)
+        2. Shows you're listening and engaged
+        3. Builds their confidence
+        4. Gently suggests improvements if needed (very diplomatically)
+        5. Feels natural and supportive
+        
+        **Tone examples:**
+        - "Nice work explaining..."
+        - "I like how you approached..."
+        - "Good thinking on..."
+        - "That shows good understanding of..."
+        
+        **Return JSON:**
         {{
-            "parsed_info": "cleaned user input"
+            "encouraging_feedback": "2-3 sentences of positive, specific feedback",
+            "score": 7.5,
+            "key_strength": "main strength they demonstrated",
+            "improvement_area": "gentle suggestion if needed, or 'None' if answer was strong",
+            "confidence_level": "High/Medium/Low based on their answer style"
         }}
+        
+        Be genuinely encouraging while honest about their performance level.
         """
+    
+    @staticmethod
+    def get_comprehensive_analysis_prompt(candidate_data, all_qa_pairs, conversation_context, real_time_feedback):
+        """Generate final comprehensive interview analysis"""
+        
+        qa_summary = ""
+        feedback_summary = ""
+        
+        for i, qa in enumerate(all_qa_pairs, 1):
+            qa_summary += f"Q{i}: {qa['question']}\nA{i}: {qa['answer']}\n\n"
+        
+        for i, feedback in enumerate(real_time_feedback, 1):
+            feedback_summary += f"Q{i} Score: {feedback.get('score', 0)}/10 - {feedback.get('key_strength', '')}\n"
+        
+        return f"""
+        Generate a comprehensive, encouraging interview analysis for {candidate_data['full_name']}.
+        
+        **Complete Interview:**
+        {qa_summary}
+        
+        **Real-time Feedback Summary:**
+        {feedback_summary}
+        
+        **Candidate Background:**
+        - Position: {candidate_data['desired_position']}
+        - Experience: {candidate_data['years_experience']} years
+        - Tech Stack: {', '.join(candidate_data.get('tech_stack', []))}
+        
+        **Generate analysis with:**
+        
+        1. **Overall Performance Score (0-10)**
+        2. **Individual Scores:**
+           - Technical Knowledge (0-10)
+           - Communication Skills (0-10)  
+           - Problem Solving (0-10)
+        
+        3. **Key Strengths** (3-4 specific points)
+        4. **Areas for Growth** (2-3 constructive suggestions)
+        5. **Specific Recommendations** (actionable advice for improvement)
+        6. **Hiring Recommendation** (Strong Recommend/Recommend/Consider/Not Recommend)
+        
+        **Return JSON:**
+        {{
+            "overall_score": 8.2,
+            "technical_score": 8.5,
+            "communication_score": 7.8,
+            "problem_solving_score": 8.0,
+            "key_strengths": ["Specific strength 1", "Specific strength 2", "Specific strength 3"],
+            "areas_for_growth": ["Growth area 1", "Growth area 2"],
+            "specific_recommendations": ["Actionable advice 1", "Actionable advice 2"],
+            "hiring_recommendation": "Recommend",
+            "summary_feedback": "2-3 sentence encouraging summary of their performance",
+            "next_steps_suggestion": "What they should focus on next in their career"
+        }}
+        
+        **Tone:** Encouraging, constructive, mentor-like. Focus on growth and potential.
+        """
+    
     @staticmethod
     def get_context_based_response_prompt(user_question, candidate_data, interview_qa, conversation_context):
-        """Prompt for generating context-aware responses after interview"""
-        tech_stack_str = ", ".join(candidate_data.get('tech_stack', [])) if isinstance(candidate_data.get('tech_stack'), list) else candidate_data.get('tech_stack', '')
+        """Generate context-aware responses for post-interview questions"""
         
         qa_context = ""
         for i, qa in enumerate(interview_qa, 1):
             qa_context += f"Q{i}: {qa['question']}\nA{i}: {qa['answer']}\n\n"
         
+        tech_stack_str = ", ".join(candidate_data.get('tech_stack', [])) if isinstance(candidate_data.get('tech_stack'), list) else candidate_data.get('tech_stack', '')
+        
         return f"""
-        You are TalentScout AI, a professional hiring assistant. A candidate has just completed their technical interview and is asking a follow-up question. 
-
-        Provide a helpful, professional response based on the full context of their interview.
-
-        **Candidate Profile:**
-        - Name: {candidate_data.get('full_name', 'Unknown')}
+        You are TalentScout AI responding to a post-interview question from {candidate_data.get('full_name', 'the candidate')}.
+        
+        **Their Profile:**
         - Position: {candidate_data.get('desired_position', 'Unknown')}
         - Experience: {candidate_data.get('years_experience', 0)} years
         - Tech Stack: {tech_stack_str}
         - Location: {candidate_data.get('current_location', 'Unknown')}
-
-        **Interview Q&A Context:**
+        
+        **Their Interview Performance:**
         {qa_context}
-
-        **User's Question:** {user_question}
-
-        **Instructions:**
-        1. Answer professionally as TalentScout AI
-        2. Reference their interview responses when relevant
-        3. Provide helpful information about next steps, timeline, process, etc.
-        4. Be encouraging and supportive
-        5. If asked about their performance, be diplomatic and positive
-        6. If asked about company info, provide general professional responses
-        7. Keep responses concise but informative
-
+        
+        **Their Question:** {user_question}
+        
+        **Respond with:**
+        1. Professional, helpful information
+        2. Reference their interview when relevant
+        3. Encouraging and supportive tone
+        4. Specific next steps or timeline if asked
+        5. General career guidance if appropriate
+        
+        **Keep responses:**
+        - Concise but informative
+        - Professional but warm
+        - Honest but encouraging
+        - Focused on being helpful
+        
         Generate a helpful response:
         """

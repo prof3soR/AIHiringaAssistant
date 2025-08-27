@@ -7,7 +7,8 @@ from groq import Groq
 
 from db_manager import DatabaseManager
 from prompts import PromptsManager
-from utils import SearchManager, ConversationStates
+from utils import SearchManager, ConversationStates, ConversationMemory, ScoreCalculator
+from analysis_engine import ConversationalAnalyzer
 
 load_dotenv()
 
@@ -22,88 +23,23 @@ def init_search_manager():
     """Initialize search manager"""
     return SearchManager()
 
-class HiringAssistant:
+@st.cache_data
+def init_conversation_memory():
+    """Initialize conversation memory"""
+    return ConversationMemory()
+
+class ConversationalInterviewer:
     
     def __init__(self):
         self.db = DatabaseManager()
         self.groq_client = init_groq_client()
         self.search_manager = init_search_manager()
         self.prompts = PromptsManager()
-    
-    def generate_custom_questions(self, candidate_data, search_results):
-        """Generate customized interview questions"""
-        # Parse tech stack safely
-        tech_stack_raw = candidate_data.get('tech_stack', '[]')
-        if isinstance(tech_stack_raw, str):
-            try:
-                tech_stack = json.loads(tech_stack_raw)
-            except:
-                tech_stack = []
-        elif isinstance(tech_stack_raw, list):
-            tech_stack = tech_stack_raw
-        else:
-            tech_stack = []
-        
-        # Create candidate data with parsed tech stack
-        candidate_for_prompt = candidate_data.copy()
-        candidate_for_prompt['tech_stack'] = tech_stack
-        
-        question_prompt = self.prompts.get_question_generation_prompt(candidate_for_prompt, search_results)
-        
-        try:
-            response = self.groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                messages=[{"role": "user", "content": question_prompt}],
-                temperature=0.3,
-                max_tokens=3000
-            )
-            
-            questions_data = json.loads(response.choices[0].message.content.strip())
-            return questions_data['questions']
-        except Exception as e:
-            st.error(f"Error generating questions: {str(e)}")
-            # Fallback questions
-            return [
-                {"id": 1, "question": f"Tell me about your experience with {tech_stack[0] if tech_stack else 'programming'}.", "focus_area": "General"},
-                {"id": 2, "question": "Describe a challenging project you've worked on and how you approached it.", "focus_area": "Problem solving"},
-                {"id": 3, "question": "How do you handle debugging and troubleshooting in your development process?", "focus_area": "Technical skills"},
-                {"id": 4, "question": "What's your approach to learning new technologies and staying updated?", "focus_area": "Learning"},
-                {"id": 5, "question": "Where do you see yourself in the next 2 years in terms of career growth?", "focus_area": "Career goals"}
-            ]
-    
-    def generate_context_based_response(self, user_question, email):
-        """Generate response based on full interview context"""
-        candidate_data = self.db.get_candidate_data(email)
-        interview_qa = self.db.get_interview_qa(email)
-        conversation_context = self.db.get_chat_history(email)
-        
-        # Parse tech stack safely for candidate data
-        tech_stack_raw = candidate_data.get('tech_stack', '[]')
-        if isinstance(tech_stack_raw, str):
-            try:
-                candidate_data['tech_stack'] = json.loads(tech_stack_raw)
-            except:
-                candidate_data['tech_stack'] = []
-        
-        context_prompt = self.prompts.get_context_based_response_prompt(
-            user_question, candidate_data, interview_qa, conversation_context
-        )
-        
-        try:
-            response = self.groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                messages=[{"role": "user", "content": context_prompt}],
-                temperature=0.4,
-                max_tokens=1000
-            )
-            
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            st.error(f"Error generating response: {str(e)}")
-            return "I apologize, but I'm having trouble processing your question right now. Our team will be in touch with you soon regarding next steps. Is there anything else I can help you with?"
+        self.analyzer = ConversationalAnalyzer(self.groq_client, self.db)
+        self.memory = init_conversation_memory()
     
     def process_conversation(self, email, user_input):
-        """Main conversation processing logic"""
+        """Main conversational processing logic"""
         conv_state = self.db.get_conversation_state(email)
         
         if not conv_state:
@@ -111,18 +47,18 @@ class HiringAssistant:
         
         current_state = conv_state['current_state']
         
-        # Save user message
+        # Save user message to chat history
         self.db.save_message(email, "user", user_input)
         
-        # Process based on current state
-        if current_state == ConversationStates.INTERVIEW_ACTIVE:
-            return self._handle_interview_answer(email, user_input, conv_state)
+        # Route to appropriate handler
+        if current_state == ConversationStates.CONVERSATIONAL_INTRO:
+            return self._handle_conversational_intro(email, user_input, conv_state)
         
-        elif current_state == ConversationStates.ANSWER_CONFIRMATION:
-            return self._handle_answer_confirmation(email, user_input, conv_state)
+        elif current_state == ConversationStates.DYNAMIC_INTERVIEW:
+            return self._handle_dynamic_interview(email, user_input, conv_state)
         
-        elif current_state == ConversationStates.FINAL_SUMMARY:
-            return self._handle_final_summary(email, user_input, conv_state)
+        elif current_state == ConversationStates.REAL_TIME_ANALYSIS:
+            return self._handle_real_time_analysis(email, user_input, conv_state)
         
         elif current_state == ConversationStates.POST_INTERVIEW_QA:
             return self._handle_post_interview_qa(email, user_input, conv_state)
@@ -132,226 +68,382 @@ class HiringAssistant:
         
         return "I'm not sure how to help with that. Could you please clarify?"
     
-    def _handle_interview_answer(self, email, user_answer, conv_state):
-        """Handle interview answers"""
-        current_q_num = conv_state['current_question_number']
-        generated_questions = conv_state['generated_questions']
-        
-        # Get current question
-        if generated_questions and current_q_num <= len(generated_questions):
-            current_question = generated_questions[current_q_num - 1]['question']
-        else:
-            current_question = "Previous question"
-        
-        # Save the answer
-        self.db.save_interview_qa(email, current_q_num, current_question, user_answer)
-        
-        # Check if we've asked all questions (5)
-        if current_q_num >= 5:
-            # Move to answer confirmation
-            self.db.create_or_update_conversation(email, ConversationStates.ANSWER_CONFIRMATION)
-            
-            response = f"Great job, {conv_state['user_name']}! You've answered all 5 questions. 🎉\n\nBefore we conclude, would you like to review or edit any of your answers?\n\nType **'review'** to see all your answers, **'edit [question number]'** to modify a specific answer (e.g., 'edit 3'), or **'done'** if you're satisfied with your responses."
-            
-            self.db.save_message(email, "assistant", response)
-            return response
-        
-        else:
-            # Move to next question
-            next_q_num = current_q_num + 1
-            
-            if generated_questions and next_q_num <= len(generated_questions):
-                next_question = generated_questions[next_q_num - 1]['question']
-                response = f"Great answer! 👍\n\n**Question {next_q_num}:**\n{next_question}"
-            else:
-                response = f"Thank you for your answer! 👍\n\n**Question {next_q_num}:**\nTell me about a time you had to solve a complex technical problem. What was your approach?"
-            
-            # Update question number
-            self.db.create_or_update_conversation(email, question_number=next_q_num)
-            self.db.save_message(email, "assistant", response)
-            return response
-    
-    def _handle_answer_confirmation(self, email, user_input, conv_state):
-        """Handle answer confirmation and editing"""
-        user_input_lower = user_input.lower().strip()
-        
-        if "review" in user_input_lower:
-            # Show all Q&As
-            qa_pairs = self.db.get_interview_qa(email)
-            review_text = f"📋 **Your Interview Responses:**\n\n"
-            
-            for i, qa in enumerate(qa_pairs, 1):
-                review_text += f"**Q{i}:** {qa['question']}\n"
-                review_text += f"**A{i}:** {qa['answer']}\n\n"
-            
-            response = review_text + "Would you like to edit any answer? Type **'edit [number]'** (e.g., 'edit 2') or **'done'** if satisfied."
-            self.db.save_message(email, "assistant", response)
-            return response
-        
-        elif "edit" in user_input_lower and any(str(i) in user_input for i in range(1, 6)):
-            # Handle editing specific question
-            q_num = next((i for i in range(1, 6) if str(i) in user_input), 1)
-            qa_pairs = self.db.get_interview_qa(email)
-            
-            if q_num <= len(qa_pairs):
-                question = qa_pairs[q_num-1]['question']
-                response = f"**Question {q_num}:** {question}\n\n**Your current answer:** {qa_pairs[q_num-1]['answer']}\n\nPlease provide your new answer:"
-                
-                # Store the question number being edited
-                self.db.create_or_update_conversation(email, question_number=q_num)
-                self.db.save_message(email, "assistant", response)
-                return response
-        
-        elif "done" in user_input_lower:
-            # Move to final summary
-            self.db.create_or_update_conversation(email, ConversationStates.FINAL_SUMMARY)
-            return self._show_final_summary(email, conv_state)
-        
-        else:
-            # This might be a new answer for editing
-            current_q_num = conv_state['current_question_number']
-            if current_q_num > 0:
-                # Update the answer
-                self.db.update_interview_answer(email, current_q_num, user_input)
-                response = f"Perfect! I've updated your answer for Question {current_q_num}.\n\nAnything else to edit? Type **'edit [number]'**, **'review'** to see all answers, or **'done'** to finish."
-                self.db.save_message(email, "assistant", response)
-                return response
-        
-        response = "I'm not sure what you'd like to do. Type **'review'** to see your answers, **'edit [number]'** to edit a specific answer, or **'done'** to finish."
-        self.db.save_message(email, "assistant", response)
-        return response
-    
-    def _show_final_summary(self, email, conv_state):
-        """Show final summary of all Q&As"""
+    def _handle_conversational_intro(self, email, user_input, conv_state):
+        """Handle natural conversation before technical questions"""
         candidate_data = self.db.get_candidate_data(email)
-        qa_pairs = self.db.get_interview_qa(email)
         
-        # Parse tech stack safely
+        # Parse tech stack for prompts
         tech_stack_raw = candidate_data.get('tech_stack', '[]')
         if isinstance(tech_stack_raw, str):
             try:
-                tech_stack = json.loads(tech_stack_raw)
+                candidate_data['tech_stack'] = json.loads(tech_stack_raw)
             except:
-                tech_stack = []
-        elif isinstance(tech_stack_raw, list):
-            tech_stack = tech_stack_raw
-        else:
-            tech_stack = []
+                candidate_data['tech_stack'] = []
         
-        tech_stack_str = ", ".join(tech_stack) if tech_stack else "Not specified"
+        # Get conversation context
+        conversation_context = self.db.get_conversation_context(email)
         
-        summary = f"""🎉 **Interview Complete!** Thank you, {conv_state['user_name']}!
-
-📊 **Your Profile Summary:**
-• **Position:** {candidate_data['desired_position']}
-• **Experience:** {candidate_data['years_experience']} years  
-• **Tech Stack:** {tech_stack_str}
-• **Location:** {candidate_data['current_location']}
-
-📋 **Your Complete Interview Responses:**
-
-"""
+        # Generate conversational response
+        response = self._generate_conversational_response(candidate_data, conversation_context, user_input)
         
-        for i, qa in enumerate(qa_pairs, 1):
-            summary += f"**Q{i}:** {qa['question']}\n"
-            summary += f"**A{i}:** {qa['answer']}\n\n"
+        # Save conversation exchange to memory
+        self.db.save_conversation_exchange(email, user_input, response)
         
-        summary += """🚀 **Next Steps:**
-• Our technical team will review your responses
-• We'll evaluate your answers against our requirements  
-• You'll hear back from us within 2-3 business days
-• If selected, we'll schedule a detailed technical interview
-
-Thank you for your time and interest! We appreciate the effort you put into this assessment.
-
-💬 **Have any questions?** Feel free to ask me anything about the process, timeline, or next steps! 
-Or say **'goodbye'** when you're ready to end our conversation. 👋"""
+        # Check if ready for technical questions (after 3-4 exchanges)
+        exchange_count = self.db.get_conversation_exchange_count(email)
         
-        self.db.save_message(email, "assistant", summary)
-        self.db.create_or_update_conversation(email, ConversationStates.POST_INTERVIEW_QA)
-        return summary
+        if exchange_count >= 3:
+            # Transition to technical interview
+            response += "\n\n🎯 **Great! I have a good sense of your background now. Let's start with some technical questions that build on what you've shared. Ready?**"
+            
+            self.db.create_or_update_conversation(email, ConversationStates.DYNAMIC_INTERVIEW, question_number=1)
+        
+        self.db.save_message(email, "assistant", response)
+        return response
     
-    def _handle_final_summary(self, email, user_input, conv_state):
-        """Handle final summary state"""
-        return self._show_final_summary(email, conv_state)
+    def _handle_dynamic_interview(self, email, user_answer, conv_state):
+        """Handle dynamic interview with real-time feedback"""
+        candidate_data = self.db.get_candidate_data(email)
+        current_q_num = conv_state['current_question_number']
+        
+        # Parse tech stack
+        tech_stack_raw = candidate_data.get('tech_stack', '[]')
+        if isinstance(tech_stack_raw, str):
+            try:
+                candidate_data['tech_stack'] = json.loads(tech_stack_raw)
+            except:
+                candidate_data['tech_stack'] = []
+        
+        # Get previous Q&As and conversation context
+        previous_qa = self.db.get_interview_qa_with_feedback(email)
+        conversation_context = self.db.get_conversation_context(email)
+        
+        # If this is an answer to a question
+        if previous_qa or current_q_num > 1:
+            # Get the last question that was asked
+            last_question = previous_qa[-1]['question'] if previous_qa else "Introduction question"
+            
+            # Generate real-time feedback for the answer
+            feedback = self.analyzer.analyze_answer_realtime(last_question, user_answer, candidate_data)
+            
+            # Save Q&A with feedback
+            self.db.save_interview_qa_with_feedback(
+                email, current_q_num, last_question, user_answer, 
+                feedback.get('score', 0), feedback.get('encouraging_feedback', '')
+            )
+            
+            # Update previous Q&A list
+            previous_qa = self.db.get_interview_qa_with_feedback(email)
+            
+            # Check if we've completed enough questions (5-6)
+            if len(previous_qa) >= 5:
+                # Move to comprehensive analysis
+                self.db.create_or_update_conversation(email, ConversationStates.REAL_TIME_ANALYSIS)
+                
+                comprehensive_analysis = self.analyzer.generate_comprehensive_analysis(
+                    email, candidate_data, previous_qa, conversation_context
+                )
+                
+                return self._present_comprehensive_analysis(email, conv_state, comprehensive_analysis)
+            
+            # Generate next question with feedback
+            next_question = self._generate_next_dynamic_question(
+                candidate_data, previous_qa, conversation_context, feedback
+            )
+            
+            # Combine feedback and next question
+            response = f"**{feedback.get('encouraging_feedback', 'Great answer!')}** 👍\n\n{next_question}"
+            
+        else:
+            # This is the start - generate first technical question
+            first_question = self._generate_first_technical_question(candidate_data, conversation_context)
+            response = f"Perfect! Let's dive into some technical areas now.\n\n{first_question}"
+        
+        # Update question number for next iteration
+        next_q_num = current_q_num + 1
+        self.db.create_or_update_conversation(email, question_number=next_q_num)
+        
+        self.db.save_message(email, "assistant", response)
+        return response
+    
+    def _handle_real_time_analysis(self, email, user_input, conv_state):
+        """Handle post-analysis interactions"""
+        # Check for continuation keywords
+        continue_keywords = ["yes", "continue", "more", "tell me more", "explain"]
+        end_keywords = ["no", "done", "finish", "goodbye", "bye", "thanks"]
+        
+        if any(keyword in user_input.lower() for keyword in end_keywords):
+            self.db.create_or_update_conversation(email, ConversationStates.POST_INTERVIEW_QA)
+            
+            response = f"Perfect! Thank you for completing the interview, {conv_state['user_name']}! 🎉\n\n💬 **Feel free to ask me any questions about the process, timeline, or next steps. I'm here to help!**\n\nOr say **'goodbye'** when you're ready to end our conversation."
+            
+        elif any(keyword in user_input.lower() for keyword in continue_keywords):
+            # Provide more detailed analysis or tips
+            analysis = self.db.get_candidate_analysis(email)
+            if analysis:
+                response = self._provide_detailed_tips(analysis, conv_state['user_name'])
+            else:
+                response = "I'd love to provide more details, but I'm having trouble accessing your analysis. Feel free to ask any other questions!"
+        
+        else:
+            # General response
+            response = "Is there anything specific you'd like to know more about regarding your performance or next steps? You can ask for more details or say 'done' when you're ready to finish."
+        
+        self.db.save_message(email, "assistant", response)
+        return response
     
     def _handle_post_interview_qa(self, email, user_input, conv_state):
         """Handle post-interview questions using full context"""
-        # Check for termination keywords first
         ending_keywords = ["thank you", "goodbye", "bye", "thanks", "end", "finish", "done", "exit", "quit"]
+        
         if any(keyword in user_input.lower() for keyword in ending_keywords):
             self.db.create_or_update_conversation(email, ConversationStates.CONVERSATION_TERMINATED)
             
             response = f"Thank you for your time, {conv_state['user_name']}! 🙏\n\nYour interview has been completed and recorded. Our team will review your responses and get back to you soon.\n\nWe appreciate your interest in joining our team. Have a great day! ✨\n\n*This conversation has ended. You can close this window.*"
+            
             self.db.save_message(email, "assistant", response)
             return response
         
         # Generate context-based response
-        response = self.generate_context_based_response(user_input, email)
+        candidate_data = self.db.get_candidate_data(email)
+        interview_qa = self.db.get_interview_qa_with_feedback(email)
+        conversation_context = self.db.get_conversation_context(email)
         
-        # Add helpful reminder
+        response = self._generate_context_based_response(
+            user_input, candidate_data, interview_qa, conversation_context
+        )
+        
         response += f"\n\nAnything else you'd like to know? Feel free to ask, or say **'goodbye'** when you're ready to end our conversation."
         
         self.db.save_message(email, "assistant", response)
         return response
     
     def _handle_terminated_state(self, email, user_input, conv_state):
-        """Handle terminated conversation state - should not be reached if UI hides chat"""
+        """Handle terminated conversation state"""
         response = "This conversation has ended. Thank you for your time!"
         self.db.save_message(email, "assistant", response)
         return response
     
-    def prepare_interview_questions(self, email):
-        """Prepare and store interview questions"""
-        candidate_data = self.db.get_candidate_data(email)
+    # Helper methods for generating responses
+    def _generate_conversational_response(self, candidate_data, conversation_history, user_input):
+        """Generate natural conversational response"""
+        prompt = self.prompts.get_conversational_response_prompt(candidate_data, conversation_history, user_input)
         
-        if not candidate_data:
-            return False
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=800
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            st.error(f"Error generating response: {str(e)}")
+            return "That's interesting! Tell me more about your experience and what you're currently working on."
+    
+    def _generate_first_technical_question(self, candidate_data, conversation_context):
+        """Generate first technical question based on conversation"""
+        prompt = self.prompts.get_first_technical_question_prompt(candidate_data, conversation_context)
         
-        # Parse tech stack safely
-        tech_stack_raw = candidate_data.get('tech_stack', '[]')
-        if isinstance(tech_stack_raw, str):
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=600
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            st.error(f"Error generating first question: {str(e)}")
+            tech_stack = candidate_data.get('tech_stack', [])
+            main_tech = tech_stack[0] if tech_stack else 'programming'
+            return f"Let's start with your experience in {main_tech}. Can you walk me through a project where you used {main_tech} and what you learned from it?"
+    
+    def _generate_next_dynamic_question(self, candidate_data, previous_qa, conversation_context, last_feedback):
+        """Generate next dynamic question based on previous performance"""
+        prompt = self.prompts.get_dynamic_next_question_prompt(
+            candidate_data, previous_qa, conversation_context, last_feedback
+        )
+        
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=600
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            st.error(f"Error generating next question: {str(e)}")
+            return "That's a good foundation! Let's explore another area. Can you tell me about a technical challenge you faced recently and how you solved it?"
+    
+    def _generate_context_based_response(self, user_question, candidate_data, interview_qa, conversation_context):
+        """Generate context-aware post-interview response"""
+        prompt = self.prompts.get_context_based_response_prompt(
+            user_question, candidate_data, interview_qa, conversation_context
+        )
+        
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=700
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            st.error(f"Error generating response: {str(e)}")
+            return "I apologize, but I'm having trouble processing your question right now. Our team will be in touch with you soon regarding next steps."
+    
+    def _present_comprehensive_analysis(self, email, conv_state, analysis):
+        """Present comprehensive interview analysis to candidate"""
+        if not analysis:
+            return "I'm having trouble generating your analysis right now. Let me know if you have any questions about the interview process."
+        
+        # Calculate performance level
+        overall_score = analysis.get('overall_score', 0)
+        performance_level = ScoreCalculator.get_performance_level(overall_score)
+        
+        # Format strengths and growth areas
+        strengths = analysis.get('key_strengths', [])
+        growth_areas = analysis.get('areas_for_growth', [])
+        recommendations = analysis.get('specific_recommendations', [])
+        
+        if isinstance(strengths, str):
             try:
-                tech_stack = json.loads(tech_stack_raw)
+                strengths = json.loads(strengths)
             except:
-                tech_stack = []
-        elif isinstance(tech_stack_raw, list):
-            tech_stack = tech_stack_raw
+                strengths = [strengths]
+        
+        if isinstance(growth_areas, str):
+            try:
+                growth_areas = json.loads(growth_areas)
+            except:
+                growth_areas = [growth_areas]
+        
+        if isinstance(recommendations, str):
+            try:
+                recommendations = json.loads(recommendations)
+            except:
+                recommendations = [recommendations]
+        
+        strengths_text = "\n".join([f"• {strength}" for strength in strengths])
+        growth_text = "\n".join([f"• {area}" for area in growth_areas])
+        recommendations_text = "\n".join([f"• {rec}" for rec in recommendations])
+        
+        analysis_response = f"""🎉 **Interview Complete!** Thank you, {conv_state['user_name']}!
+
+📊 **Your Performance Analysis:**
+
+**Overall Score: {overall_score}/10** ({performance_level})
+• **Technical Knowledge:** {analysis.get('technical_score', 0)}/10
+• **Communication Skills:** {analysis.get('communication_score', 0)}/10
+• **Problem Solving:** {analysis.get('problem_solving_score', 0)}/10
+
+💪 **Your Key Strengths:**
+{strengths_text}
+
+📈 **Areas for Growth:**
+{growth_text}
+
+🎯 **Personalized Recommendations:**
+{recommendations_text}
+
+**Summary:** {analysis.get('summary_feedback', 'You showed good technical understanding and communication skills.')}
+
+**Next Steps Suggestion:** {analysis.get('next_steps_suggestion', 'Continue building your skills and gaining practical experience.')}
+
+---
+
+🚀 **What's Next?**
+• Our technical team will review your complete performance
+• We'll be in touch within 2-3 business days with next steps
+• Keep building on your strengths while working on growth areas
+
+Would you like me to explain any part of this analysis in more detail? Or do you have questions about the next steps?"""
+        
+        self.db.save_message(email, "assistant", analysis_response)
+        return analysis_response
+    
+    def _provide_detailed_tips(self, analysis, user_name):
+        """Provide detailed tips based on analysis"""
+        growth_areas = analysis.get('areas_for_growth', [])
+        recommendations = analysis.get('specific_recommendations', [])
+        
+        if isinstance(growth_areas, str):
+            try:
+                growth_areas = json.loads(growth_areas)
+            except:
+                growth_areas = [growth_areas]
+        
+        if isinstance(recommendations, str):
+            try:
+                recommendations = json.loads(recommendations)
+            except:
+                recommendations = [recommendations]
+        
+        if growth_areas and recommendations:
+            tips_text = f"""Here are some detailed tips for your growth, {user_name}:
+
+**Specific Areas to Focus On:**
+"""
+            for i, (area, rec) in enumerate(zip(growth_areas, recommendations), 1):
+                tips_text += f"\n**{i}. {area}**\n   💡 {rec}\n"
+            
+            tips_text += """\n**General Tips:**
+• Set up a regular learning schedule (even 30 minutes daily helps)
+• Build small projects to practice new concepts
+• Join tech communities and forums for support
+• Consider online courses or tutorials for structured learning
+• Practice explaining technical concepts to improve communication
+
+Remember, growth takes time. Focus on one area at a time and celebrate your progress! 🌟"""
+            
+            return tips_text
         else:
+            return f"You're doing great, {user_name}! Keep building on your current strengths and stay curious about new technologies. The key to growth is consistent practice and learning."
+
+def start_conversational_intro(email, user_name, candidate_data):
+    """Initialize conversational introduction"""
+    db = DatabaseManager()
+    
+    # Create conversation state
+    db.create_or_update_conversation(
+        email, 
+        ConversationStates.CONVERSATIONAL_INTRO, 
+        user_name, 
+        candidate_data['id']
+    )
+    
+    # Parse tech stack for display
+    tech_stack_raw = candidate_data.get('tech_stack', '[]')
+    if isinstance(tech_stack_raw, str):
+        try:
+            tech_stack = json.loads(tech_stack_raw)
+        except:
             tech_stack = []
-        
-        # Search for questions
-        search_results = self.search_manager.search_interview_questions(
-            tech_stack,
-            candidate_data['desired_position'], 
-            candidate_data['years_experience']
-        )
-        
-        # Generate custom questions
-        questions = self.generate_custom_questions(candidate_data, search_results)
-        
-        # Store questions in conversation
-        self.db.create_or_update_conversation(
-            email, 
-            ConversationStates.INTERVIEW_ACTIVE, 
-            question_number=1, 
-            generated_questions=questions
-        )
-        
-        # Start with first question
-        first_question = questions[0]['question'] if questions else "Tell me about your programming experience."
-        
-        interview_start = f"""Excellent! I've prepared 5 technical questions tailored to your background. 🎯
+    else:
+        tech_stack = tech_stack_raw
+    
+    # Generate intro message
+    intro_message = f"""👋 Hello {user_name}! Welcome to TalentScout AI.
 
-Let's begin your technical assessment.
+I've received your information:
+• **Position:** {candidate_data['desired_position']}
+• **Experience:** {candidate_data['years_experience']} years
+• **Tech Stack:** {', '.join(tech_stack)}
+• **Location:** {candidate_data['current_location']}
 
-**Question 1:**
-{first_question}
+Before we dive into technical questions, I'd love to get to know you better! 
 
-Take your time to provide a detailed answer!"""
-        
-        self.db.save_message(email, "assistant", interview_start)
-        return interview_start
+**Tell me - what got you interested in {candidate_data['desired_position']}? Are you currently working on any interesting projects or learning something specific?**"""
+    
+    db.save_message(email, "assistant", intro_message)
+    return intro_message
 
 # Streamlit UI
 def main():
@@ -361,64 +453,26 @@ def main():
         layout="wide"
     )
     
-    # Custom CSS for chat interface
-    st.markdown("""
-    <style>
-    .main > div {
-        padding-top: 1rem;
-    }
-    .stChatMessage {
-        border-radius: 10px;
-        margin: 0.5rem 0;
-    }
-    .chat-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .info-form {
-        background: #f8f9fa;
-        padding: 2rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-        border: 1px solid #dee2e6;
-    }
-    .conversation-ended {
-        background: #d4edda;
-        border: 1px solid #c3e6cb;
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 1rem 0;
-        text-align: center;
-        color: #155724;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Initialize assistant
-    assistant = HiringAssistant()
+    # Initialize interviewer
+    interviewer = ConversationalInterviewer()
     
     # Header
-    st.markdown("""
-    <div class="chat-header">
-        <h1>🎯 TalentScout AI Hiring Assistant</h1>
-        <p>Intelligent Technical Screening for Technology Positions</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.title("🎯 TalentScout AI Hiring Assistant")
+    st.markdown("**Intelligent Conversational Technical Screening**")
+    st.divider()
     
-    # Email input for session management
+    # Session state management
     if 'user_email' not in st.session_state:
         st.session_state.user_email = None
         st.session_state.form_submitted = False
     
+    # Email input
     if not st.session_state.user_email:
+        st.subheader("Get Started")
         with st.form("email_form"):
             st.write("**Please enter your email to start:**")
             email_input = st.text_input("Email Address", placeholder="your.email@example.com")
-            submit_email = st.form_submit_button("Start Interview")
+            submit_email = st.form_submit_button("Start Interview", type="primary")
             
             if submit_email and email_input:
                 if "@" in email_input and "." in email_input:
@@ -429,15 +483,12 @@ def main():
         return
     
     email = st.session_state.user_email
+    conv_state = interviewer.db.get_conversation_state(email)
     
-    # Check if conversation exists
-    conv_state = assistant.db.get_conversation_state(email)
-    
-    # If no conversation exists and form not submitted, show information form
+    # Information form (if no conversation exists)
     if not conv_state and not st.session_state.form_submitted:
-        st.markdown('<div class="info-form">', unsafe_allow_html=True)
-        st.markdown("## 📋 Candidate Information")
-        st.markdown("Please fill out the form below to get started with your technical interview.")
+        st.subheader("📋 Candidate Information")
+        st.write("Please fill out the form below to get started with your conversational technical interview.")
         
         with st.form("candidate_info_form"):
             col1, col2 = st.columns(2)
@@ -457,17 +508,14 @@ def main():
                 height=100
             )
             
-            submit_info = st.form_submit_button("🚀 Start Technical Interview", type="primary")
+            submit_info = st.form_submit_button("🚀 Start Conversational Interview", type="primary")
             
             if submit_info:
-                # Validate required fields
                 if not full_name or not desired_position or not tech_stack_input:
                     st.error("Please fill in all required fields marked with *")
                 else:
-                    # Parse tech stack
                     tech_stack = [tech.strip() for tech in tech_stack_input.split(',') if tech.strip()]
                     
-                    # Prepare candidate data with JSON string for tech_stack
                     candidate_data = {
                         'full_name': full_name.strip(),
                         'email': email,
@@ -475,122 +523,84 @@ def main():
                         'years_experience': years_experience,
                         'desired_position': desired_position.strip(),
                         'current_location': current_location.strip() if current_location else "Not provided",
-                        'tech_stack': json.dumps(tech_stack)  # Convert to JSON string
+                        'tech_stack': json.dumps(tech_stack)
                     }
                     
-                    # Save to database
-                    candidate_id = assistant.db.save_candidate_to_db(candidate_data, "")
+                    candidate_id = interviewer.db.save_candidate_to_db(candidate_data, "")
                     
                     if candidate_id:
-                        # Create conversation
-                        assistant.db.create_or_update_conversation(
-                            email, 
-                            ConversationStates.INTERVIEW_PREP, 
-                            full_name, 
-                            candidate_id
-                        )
-                        
-                        # Show welcome message
-                        welcome_message = f"👋 Hello {full_name}! Welcome to TalentScout AI.\n\nI've received your information and I'm now preparing customized technical questions based on your profile:\n\n📊 **Your Profile:**\n• Position: {desired_position}\n• Experience: {years_experience} years\n• Tech Stack: {', '.join(tech_stack)}\n• Location: {current_location or 'Not provided'}\n\nPlease wait while I generate your personalized interview questions..."
-                        assistant.db.save_message(email, "assistant", welcome_message)
+                        candidate_data['id'] = candidate_id
+                        intro_message = start_conversational_intro(email, full_name, candidate_data)
                         
                         st.session_state.form_submitted = True
-                        st.success("✅ Information saved! Preparing your interview questions...")
+                        st.success("✅ Information saved! Starting conversational interview...")
                         time.sleep(1)
                         st.rerun()
                     else:
                         st.error("There was an error saving your information. Please try again.")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
         return
     
-    # If conversation exists or form submitted, show chat interface
-    if not conv_state and st.session_state.form_submitted:
-        # This means form was just submitted, get the new conversation state
-        conv_state = assistant.db.get_conversation_state(email)
-    
-    if conv_state:
-        # Display conversation history
-        chat_history = assistant.db.get_chat_history(email)
+    # Chat interface for active conversations
+    if conv_state or st.session_state.form_submitted:
+        if not conv_state:
+            conv_state = interviewer.db.get_conversation_state(email)
         
-        # Create chat container
+        # Display conversation history
+        chat_history = interviewer.db.get_chat_history(email)
+        
         for message in chat_history:
             with st.chat_message(message['type']):
                 st.write(message['content'])
         
-        # Handle interview preparation
-        if conv_state['current_state'] == ConversationStates.INTERVIEW_PREP:
-            with st.spinner('🔍 Searching for relevant interview questions...'):
-                interview_start = assistant.prepare_interview_questions(email)
-                
-                if interview_start:
-                    with st.chat_message("assistant"):
-                        st.write(interview_start)
-                    
-                    # Force refresh to update state
-                    st.rerun()
-        
         # Show conversation ended message if terminated
-        if conv_state['current_state'] == ConversationStates.CONVERSATION_TERMINATED:
-            st.markdown("""
-            <div class="conversation-ended">
-                <h3>✅ Conversation Ended</h3>
-                <p>Thank you for completing the interview! You can now close this window.</p>
-            </div>
-            """, unsafe_allow_html=True)
+        if conv_state and conv_state['current_state'] == ConversationStates.CONVERSATION_TERMINATED:
+            st.success("✅ Interview Complete! Thank you for completing your conversational interview! You can now close this window.")
         
-        # Chat input - Only show during active conversation states (HIDE when terminated)
-        if conv_state['current_state'] in [
-            ConversationStates.INTERVIEW_ACTIVE, 
-            ConversationStates.ANSWER_CONFIRMATION, 
-            ConversationStates.FINAL_SUMMARY,
-            ConversationStates.POST_INTERVIEW_QA  # NEW: Allow chat in post-interview Q&A
-            # NOTE: CONVERSATION_TERMINATED is NOT included - chat input hidden
-        ]:
+        # Chat input (hide when terminated)
+        if conv_state and conv_state['current_state'] != ConversationStates.CONVERSATION_TERMINATED:
             if prompt := st.chat_input("Type your message here..."):
                 # Display user message
                 with st.chat_message("user"):
                     st.write(prompt)
                 
                 # Process conversation
-                with st.spinner('Thinking...'):
-                    response = assistant.process_conversation(email, prompt)
+                with st.spinner('🤔 Thinking...'):
+                    response = interviewer.process_conversation(email, prompt)
                 
                 # Display assistant response
                 with st.chat_message("assistant"):
                     st.write(response)
                 
-                # Force refresh for state changes
                 st.rerun()
         
-        # Sidebar with conversation info
+        # Sidebar with status
         with st.sidebar:
-            st.markdown("### 🎯 Interview Status")
+            st.header("🎯 Interview Status")
             
             if conv_state:
-                candidate_data = assistant.db.get_candidate_data(email)
+                candidate_data = interviewer.db.get_candidate_data(email)
                 if candidate_data:
                     st.write(f"**Candidate:** {candidate_data['full_name']}")
                     st.write(f"**Position:** {candidate_data['desired_position']}")
                     st.write(f"**Experience:** {candidate_data['years_experience']} years")
                 
-                # Show user-friendly status
                 status_display = {
-                    ConversationStates.INTERVIEW_PREP: "Preparing Questions",
-                    ConversationStates.INTERVIEW_ACTIVE: "Technical Interview",
-                    ConversationStates.ANSWER_CONFIRMATION: "Answer Review",
-                    ConversationStates.FINAL_SUMMARY: "Interview Summary",
-                    ConversationStates.POST_INTERVIEW_QA: "Post-Interview Q&A",
-                    ConversationStates.CONVERSATION_TERMINATED: "Completed ✓"
+                    ConversationStates.CONVERSATIONAL_INTRO: "Getting to Know You 💭",
+                    ConversationStates.DYNAMIC_INTERVIEW: "Technical Interview 🎯",
+                    ConversationStates.REAL_TIME_ANALYSIS: "Performance Analysis 📊",
+                    ConversationStates.POST_INTERVIEW_QA: "Q&A Session 💬",
+                    ConversationStates.CONVERSATION_TERMINATED: "Complete ✅"
                 }
                 
-                st.write(f"**Status:** {status_display.get(conv_state['current_state'], conv_state['current_state'])}")
-                st.write(f"**Questions Asked:** {conv_state['current_question_number']}")
-                if conv_state['generated_questions']:
-                    st.write(f"**Total Questions:** {len(conv_state['generated_questions'])}")
+                current_status = status_display.get(conv_state['current_state'], conv_state['current_state'])
+                st.write(f"**Status:** {current_status}")
+                
+                if conv_state['current_state'] == ConversationStates.DYNAMIC_INTERVIEW:
+                    st.write(f"**Questions Asked:** {conv_state['current_question_number'] - 1}")
             
             if st.button("🔄 Start New Interview"):
-                assistant.db.clear_conversation(email)
+                interviewer.db.clear_conversation(email)
+                interviewer.memory.clear_memory(email)
                 st.session_state.user_email = None
                 st.session_state.form_submitted = False
                 st.rerun()
