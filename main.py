@@ -604,6 +604,7 @@ def main():
                 st.session_state.user_email = None
                 st.session_state.form_submitted = False
                 st.rerun()
+            st.link_button("Go to Dashboard", "https://managerdashboardaihiringagent.streamlit.app/")
 
 if __name__ == "__main__":
     main()
