@@ -39,15 +39,19 @@ Option B – Install via uv (recommended):
 ```bash
 uv sync
 ```
+### 4.Add .env file
+Add GROQ_API_KEY="your_api_key"
+Visit for more info [https://console.groq.com/docs/quickstart](url)
 
-### 4. Database Setup
+
+### 5. Database Setup
 The application uses **SQLite** (`talentscout_chat.db`) for storing candidate responses.  
 To initialize/reset the database:
 ```bash
 python db_manager.py --init
 ```
 
-### 5. Run the Application
+### 6. Run the Application
 Start the chatbot:
 ```bash
 streamlit run main.py
