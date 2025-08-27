@@ -1,5 +1,5 @@
 # Hiring Assistant Chatbot 🤖
-
+Try this project @ [https://aihiringaassistant-cbdxfxfhocfgcfdom4fbe7.streamlit.app/](url)
 ## 📌 Project Overview
 The **Hiring Assistant Chatbot** is an AI-powered recruitment tool that simplifies the candidate screening process. It interactively gathers candidate details, asks technical and HR-related questions, stores responses in a database, and provides a manager dashboard for evaluation.  
 
@@ -123,10 +123,8 @@ Example prompt categories:
 - ATS integration (export to HR platforms).  
 - Deploy as a SaaS web application.  
 
----
 
 
----
 
 ## 🙌 Acknowledgements
 Thanks to open-source tools like **LangChain**, **SQLite**, and the Python ecosystem for making this project possible.  
