@@ -210,7 +210,7 @@ class TalentScoutApp:
             if conv_state:
                 with st.expander("📊 Interview Status", expanded=False):
                     candidate_data = self.db.get_candidate_data(email)
-                    if candidate_
+                    if candidate_data:
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.write(f"**Candidate:** {candidate_data['full_name']}")
