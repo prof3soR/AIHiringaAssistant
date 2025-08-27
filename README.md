@@ -15,10 +15,10 @@ Key features include:
 ## ⚙️ Installation Instructions
 
 ### 1. Clone the Repository
-'''bash
+```bash
 git clone https://github.com/your-username/hiring-assistant-chatbot.git
 cd hiring-assistant-chatbot
-'''
+```
 
 ### 2. Set Up Virtual Environment
 ```bash
@@ -85,7 +85,7 @@ streamlit run main.py
 - **LangChain** – LLM orchestration and prompt handling.  
 - **SQLite3** – Lightweight relational database.  
 - **Streamlit** – For serving and dashboards.  
-- **Groq could LLMs** – openai/gpt-oss-20b.
+- **Groq could Model** – openai/gpt-oss-20b.
 
 
 ---
